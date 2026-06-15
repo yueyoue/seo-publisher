@@ -149,11 +149,40 @@ switch ($action) {
             [$userId]
         );
 
+        $pending = [];
+        $isResume = false;
+
         if (!empty($existingGenerating)) {
-            // 恢复：直接处理已标记为generating的文章
-            $pending = $existingGenerating;
-        } else {
-            // 新任务：获取选中的文章ID（如果有）
+            // 检查是否卡住（进度文件超过15分钟没更新则认为卡住）
+            $progressFile = UPLOAD_PATH . "progress_{$userId}.json";
+            $isStuck = false;
+            if (file_exists($progressFile)) {
+                $progress = json_decode(file_get_contents($progressFile), true);
+                $startedAt = $progress['started_at'] ?? '';
+                if ($startedAt && (time() - strtotime($startedAt)) > 900) {
+                    $isStuck = true;
+                }
+            } else {
+                // 没有进度文件但有generating文章，也认为卡住
+                $isStuck = true;
+            }
+
+            if ($isStuck) {
+                // 自动重置卡住的生成任务
+                $db->update('articles', ['status' => 'pending', 'error_message' => null], 'user_id=? AND status="generating"', [$userId]);
+                if (file_exists($progressFile)) {
+                    @unlink($progressFile);
+                }
+                // 继续到下方获取新任务
+            } else {
+                // 恢复：直接处理已标记为generating的文章
+                $pending = $existingGenerating;
+                $isResume = true;
+            }
+        }
+
+        // 新任务或卡住重置后：获取待生成文章
+        if (empty($pending)) {
             $input = json_decode(file_get_contents('php://input'), true);
             $selectedIds = $input['ids'] ?? [];
 

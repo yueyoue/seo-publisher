@@ -166,6 +166,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $message = '已重置失败文章';
     }
 
+    // 重置卡住的生成任务
+    if ($postAction === 'reset_generating') {
+        $db->update('articles', ['status' => 'pending', 'error_message' => null], 'user_id=? AND status="generating"', [$userId]);
+        // 清除进度文件
+        $progressFile = UPLOAD_PATH . "progress_{$userId}.json";
+        if (file_exists($progressFile)) {
+            @unlink($progressFile);
+        }
+        $message = '已重置生成中的文章，可以重新发起生成';
+    }
+
     // 批量设置栏目
     if ($postAction === 'batch_set_category') {
         $articleIds = $_POST['article_ids'] ?? [];
@@ -305,6 +316,10 @@ $stats = [
                         <form method="POST" class="d-inline ms-1">
                             <input type="hidden" name="action" value="reset_failed">
                             <button type="submit" class="btn btn-outline-warning btn-sm"><i class="bi bi-arrow-counterclockwise"></i> 重置失败</button>
+                        </form>
+                        <form method="POST" class="d-inline ms-1">
+                            <input type="hidden" name="action" value="reset_generating">
+                            <button type="submit" class="btn btn-outline-danger btn-sm" onclick="return confirm('确认重置？这会停止当前正在进行的生成任务')"><i class="bi bi-stop-circle"></i> 重置生成</button>
                         </form>
                         <form method="POST" class="d-inline ms-1">
                             <input type="hidden" name="action" value="clear_articles">
