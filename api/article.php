@@ -453,40 +453,18 @@ switch ($action) {
 
             writeLog('article', '批量发布', "已排程{$scheduledCount}篇，跳过{$skippedCount}篇");
 
-            // 如果没有设置任何间隔，立即触发一次发布处理
-            $hasAnyInterval = false;
-            foreach ($siteSettings as $s) {
-                if ($s && (intval($s['publish_interval'] ?? 0) > 0 || !empty(trim($s['publish_time'] ?? '')))) {
-                    $hasAnyInterval = true;
-                    break;
-                }
+            // 所有文章已排入队列，用户可从队列页面手动触发"立即处理队列"或等待cron自动处理
+            $message = "已排程 {$scheduledCount} 篇文章到发布队列。";
+            if ($skippedCount > 0) {
+                $message .= " 跳过 {$skippedCount} 篇（未设置发布目标站点，请先在文章列表中批量设置栏目）。";
             }
-
-            if (!$hasAnyInterval && $scheduledCount > 0) {
-                // 无间隔设置，直接发布第一篇
-                $first = $db->fetchOne(
-                    "SELECT * FROM articles WHERE user_id=? AND status='scheduled' ORDER BY publish_at ASC LIMIT 1",
-                    [$userId]
-                );
-                if ($first) {
-                    $publishResult = publishOneArticle($db, $first, $userId);
-                    jsonResponse([
-                        'success' => true,
-                        'message' => "已排程 {$scheduledCount} 篇文章，第一篇已发布",
-                        'scheduled' => $scheduledCount,
-                        'skipped' => $skippedCount,
-                        'immediate' => $publishResult ? 1 : 0,
-                        'mode' => 'immediate',
-                    ]);
-                }
-            }
+            $message .= " 请点击「发布队列」查看，或配置cron定时任务实现自动发布。";
 
             jsonResponse([
                 'success' => true,
-                'message' => "已排程 {$scheduledCount} 篇文章，将按设定时间自动发布。建议配置定时任务（cron）以实现后台自动发布。",
+                'message' => $message,
                 'scheduled' => $scheduledCount,
                 'skipped' => $skippedCount,
-                'mode' => 'scheduled',
             ]);
 
         } catch (Exception $e) {
@@ -524,10 +502,21 @@ switch ($action) {
             }
 
             $remaining = $db->count('articles', "user_id=? AND status='scheduled' AND publish_at <= NOW()", [$userId]);
+            $totalScheduled = $db->count('articles', "user_id=? AND status='scheduled'", [$userId]);
+            $nextPublish = null;
+            if ($processed === 0 && $totalScheduled > 0) {
+                $next = $db->fetchOne(
+                    "SELECT publish_at FROM articles WHERE user_id=? AND status='scheduled' AND publish_at > NOW() ORDER BY publish_at ASC LIMIT 1",
+                    [$userId]
+                );
+                $nextPublish = $next ? $next['publish_at'] : null;
+            }
             jsonResponse([
                 'success' => true,
                 'processed' => $processed,
                 'remaining' => $remaining,
+                'total_scheduled' => $totalScheduled,
+                'next_publish' => $nextPublish,
                 'results' => $results,
             ]);
         } catch (Exception $e) {

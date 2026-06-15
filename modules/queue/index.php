@@ -376,7 +376,14 @@ function processQueue() {
                     alert(msg);
                     location.reload();
                 } else {
-                    alert("没有到期需要发布的文章");
+                    let msg = "没有到期需要发布的文章";
+                    if (data.total_scheduled > 0) {
+                        msg += "\\n当前有 " + data.total_scheduled + " 篇文章在排队等待发布";
+                        if (data.next_publish) {
+                            msg += "\\n下一篇发布时间: " + data.next_publish;
+                        }
+                    }
+                    alert(msg);
                 }
             } else {
                 alert(data.message || "处理失败");

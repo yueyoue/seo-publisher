@@ -1124,7 +1124,14 @@ function processQueue() {
                 if (data.processed > 0) {
                     alert("已处理 " + data.processed + " 篇文章，剩余 " + data.remaining + " 篇待发布");
                 } else {
-                    alert("没有到期需要发布的文章");
+                    let msg = "没有到期需要发布的文章";
+                    if (data.total_scheduled > 0) {
+                        msg += "\\n当前有 " + data.total_scheduled + " 篇文章在排队等待发布";
+                        if (data.next_publish) {
+                            msg += "\\n下一篇发布时间: " + data.next_publish;
+                        }
+                    }
+                    alert(msg);
                 }
                 location.reload();
             } else {
