@@ -1,0 +1,23 @@
+RewriteEngine On
+
+# 排除install目录
+RewriteRule ^install/ - [L]
+
+# 如果不是目录或文件，重定向到index.php
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(.*)$ index.php?url=$1 [QSA,L]
+
+# 禁止访问config目录中的敏感文件
+<Files "database.php">
+    Deny from all
+</Files>
+<Files "installed.lock">
+    Deny from all
+</Files>
+
+<IfModule mod_headers.c>
+    Header set X-Content-Type-Options "nosniff"
+    Header set X-Frame-Options "SAMEORIGIN"
+    Header set X-XSS-Protection "1; mode=block"
+</IfModule>
