@@ -406,7 +406,7 @@ document.querySelectorAll(".queue-checkbox").forEach(cb => {
 function updateBatchCancelBtn() {
     const checked = document.querySelectorAll(".queue-checkbox:checked").length;
     const btn = document.getElementById("btnBatchCancel");
-    if (btn) btn.style.display = checked > 0 ? "inline-block" : "none';
+    if (btn) btn.style.display = checked > 0 ? "inline-block" : "none";
 }
 
 // 自动刷新（每30秒）
