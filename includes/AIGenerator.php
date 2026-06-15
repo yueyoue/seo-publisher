@@ -78,6 +78,16 @@ class AIGenerator {
             }
             $modelConfig['endpoint'] = $endpoint;
         }
+
+        // 构建图片配置（兼容模板扁平字段和嵌套结构）
+        if (empty($config['image_config']) && !empty($config['image_source']) && $config['image_source'] !== 'none') {
+            $config['image_config'] = [
+                'source' => $config['image_source'],
+                'urls' => $config['image_urls'] ?? '',
+                'position' => $config['image_position'] ?? 'after_first',
+                'max_count' => intval($config['image_max_count'] ?? 2),
+            ];
+        }
         
         // 构建提示词
         $prompt = $this->buildPrompt($keyword, $config);
@@ -206,7 +216,15 @@ class AIGenerator {
 重要：只输出文章正文的HTML内容，不要输出<!DOCTYPE>、<html>、<head>、<body>、<meta>、<title>等完整的HTML文档结构标签。以<h1>标题标签开头即可。";
 
         if (!empty($config['custom_prompt'])) {
-            $prompt .= "\n\n额外要求：\n" . $config['custom_prompt'];
+            $customPrompt = trim($config['custom_prompt']);
+            // 将每行作为一个独立要求，加上编号使其更明确
+            $lines = array_filter(array_map('trim', explode("\n", $customPrompt)));
+            if (!empty($lines)) {
+                $prompt .= "\n\n【以下为用户的额外写作要求，必须严格遵守】\n";
+                foreach ($lines as $i => $line) {
+                    $prompt .= ($i + 1) . ". " . $line . "\n";
+                }
+            }
         }
 
         return $prompt;

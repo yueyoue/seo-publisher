@@ -349,14 +349,16 @@ switch ($action) {
 
         if (file_exists($progressFile)) {
             $progress = json_decode(file_get_contents($progressFile), true);
-            // 实时统计
-            $totalGenerated = $db->count('articles', 'user_id=? AND status="generated"', [$userId]);
-            $totalFailed = $db->count('articles', 'user_id=? AND status="failed"', [$userId]);
+            // 使用进度文件中的计数（仅统计当前批次），不使用全库统计
+            // 同时检查是否还有正在生成的文章
             $stillGenerating = $db->count('articles', 'user_id=? AND status="generating"', [$userId]);
 
-            $progress['done'] = $totalGenerated + $totalFailed;
             if ($stillGenerating === 0 && ($progress['current'] ?? '') !== '完成') {
                 $progress['current'] = '完成';
+            }
+            // 确保done不超过total
+            if (($progress['done'] ?? 0) > ($progress['total'] ?? 0)) {
+                $progress['done'] = $progress['total'];
             }
             jsonResponse($progress);
         }

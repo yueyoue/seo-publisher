@@ -315,6 +315,7 @@ function getCategoryName($db, $siteId, $categoryId) {
 
     <?php echo pagination($total, $pageNum, $perPage); ?>
 
+    <?php if (Auth::isAdmin()): ?>
     <!-- Cron配置提示 -->
     <div class="card mt-4 border-warning">
         <div class="card-body">
@@ -340,6 +341,7 @@ function getCategoryName($db, $siteId, $categoryId) {
             </p>
         </div>
     </div>
+    <?php endif; ?>
 </div>
 
 <?php

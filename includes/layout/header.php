@@ -66,19 +66,16 @@ if (isset($_SESSION['user_id'])) {
                         </a>
                     </li>
                     <?php if (Auth::isAdmin()): ?>
-                    <li class="nav-item">
-                        <a class="nav-link <?php echo ($page ?? '') === 'user' ? 'active' : ''; ?>" href="/modules/user/index.php">
-                            <i class="bi bi-people"></i> 用户管理
-                        </a>
-                    </li>
                     <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle <?php echo in_array($page ?? '', ['admin', 'packages']) ? 'active' : ''; ?>" href="#" data-bs-toggle="dropdown">
+                        <a class="nav-link dropdown-toggle <?php echo in_array($page ?? '', ['admin', 'packages', 'user']) ? 'active' : ''; ?>" href="#" data-bs-toggle="dropdown">
                             <i class="bi bi-sliders"></i> 设置
                         </a>
                         <ul class="dropdown-menu">
                             <li><a class="dropdown-item" href="/modules/admin/settings.php"><i class="bi bi-gear"></i> 系统设置</a></li>
                             <li><a class="dropdown-item" href="/modules/admin/ai_models.php"><i class="bi bi-cpu"></i> AI模型管理</a></li>
                             <li><a class="dropdown-item" href="/modules/admin/packages.php"><i class="bi bi-box"></i> 套餐管理</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="/modules/user/index.php"><i class="bi bi-people"></i> 用户管理</a></li>
                         </ul>
                     </li>
                     <?php endif; ?>

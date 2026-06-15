@@ -1062,8 +1062,10 @@ function pollProgress(total) {
     fetch("/api/article.php?action=generate_status")
         .then(r => r.json())
         .then(data => {
-            const done = data.done || 0;
-            const t = data.total || total;
+            let done = data.done || 0;
+            let t = data.total || total;
+            // 确保done不超过total，避免显示 2/1 这样的错误
+            if (done > t) done = t;
             const pct = t > 0 ? Math.round((done / t) * 100) : 0;
             document.getElementById("progressBar").style.width = pct + "%";
             document.getElementById("progressText").textContent = done + " / " + t;
