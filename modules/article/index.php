@@ -1033,14 +1033,14 @@ document.getElementById("btnPublish")?.addEventListener("click", function(e) {
 });
 
 // 跟踪上一次的关键词，用于判断是否切换到新文章
-let lastPolledKeyword = '';
+let lastPolledKeyword = \'\';
 let generateAborted = false;
 
 function stopGenerate() {
-    if (!confirm('确认停止生成？\n正在生成的当前文章会完成，之后的任务将停止。')) return;
+    if (!confirm(\'确认停止生成？\\n正在生成的当前文章会完成，之后的任务将停止。\')) return;
     generateAborted = true;
     document.getElementById("btnStopGenerate").disabled = true;
-    document.getElementById("btnStopGenerate").innerHTML = '<span class="spinner-border spinner-border-sm"></span> 停止中...';
+    document.getElementById("btnStopGenerate").innerHTML = \'<span class="spinner-border spinner-border-sm"></span> 停止中...\';
     fetch("/api/article.php?action=stop_generate", {method:"POST"})
         .then(r => r.json())
         .then(data => {
@@ -1054,7 +1054,7 @@ function stopGenerate() {
         })
         .catch(() => {
             document.getElementById("btnStopGenerate").disabled = false;
-            document.getElementById("btnStopGenerate").innerHTML = '<i class="bi bi-stop-circle"></i> 停止生成';
+            document.getElementById("btnStopGenerate").innerHTML = \'<i class="bi bi-stop-circle"></i> 停止生成\';
         });
 }
 
