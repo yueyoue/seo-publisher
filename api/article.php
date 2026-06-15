@@ -600,6 +600,30 @@ switch ($action) {
         }
         break;
 
+    case 'cancel_publish':
+        // 取消发送 - 将scheduled/publishing状态的文章改回generated
+        $input = json_decode(file_get_contents('php://input'), true);
+        $ids = $input['ids'] ?? [];
+
+        if (empty($ids)) {
+            jsonResponse(['success' => false, 'message' => '请选择要取消的文章']);
+        }
+
+        try {
+            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+            $affected = $db->query(
+                "UPDATE articles SET status='generated', publish_at=NULL, error_message=NULL WHERE id IN ({$placeholders}) AND user_id=? AND status IN ('scheduled','publishing')",
+                array_merge($ids, [$userId])
+            );
+            $count = $affected ? count($ids) : 0;
+
+            writeLog('article', '取消发送', "取消{$count}篇文章的发布");
+            jsonResponse(['success' => true, 'message' => "已取消 {$count} 篇文章的发送，回到已生成状态", 'cancelled' => $count]);
+        } catch (Exception $e) {
+            jsonResponse(['success' => false, 'message' => '取消失败: ' . $e->getMessage()]);
+        }
+        break;
+
     case 'export':
         $format = $_GET['format'] ?? 'html';
         $articles = $db->fetchAll(

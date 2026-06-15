@@ -22,26 +22,53 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $keywordCount = intval($_POST['keyword_count'] ?? 50);
         $mustContain = trim($_POST['must_contain'] ?? '');
         $sourceTypes = isset($_POST['source_types']) ? implode(',', $_POST['source_types']) : 'suggest,related,also_search';
+        $miningType = $_POST['mining_type'] ?? 'search_engine';
+        $competitorUrl = trim($_POST['competitor_url'] ?? '');
 
-        if (empty($keyword)) {
-            $error = '请输入关键词';
+        if ($miningType === 'competitor') {
+            // 竞争对手模式：keyword字段用URL代替，competitor_url存URL
+            if (empty($competitorUrl)) {
+                $error = '请输入竞争站网址';
+            } else {
+                $taskId = $db->insert('keyword_tasks', [
+                    'user_id' => $userId,
+                    'keyword' => $competitorUrl,
+                    'must_contain' => '',
+                    'keyword_count' => $keywordCount,
+                    'source_types' => '',
+                    'mining_type' => 'competitor',
+                    'competitor_url' => $competitorUrl,
+                    'status' => 'pending',
+                    'created_at' => date('Y-m-d H:i:s'),
+                ]);
+
+                $miner = new KeywordMiner();
+                $count = $miner->executeTask($taskId);
+                
+                $message = "竞争站挖词完成！从 {$competitorUrl} 找到 {$count} 个关键词";
+                writeLog('keyword', '竞争站挖词', "URL:{$competitorUrl}, 找到:{$count}个");
+            }
         } else {
-            $taskId = $db->insert('keyword_tasks', [
-                'user_id' => $userId,
-                'keyword' => $keyword,
-                'must_contain' => $mustContain,
-                'keyword_count' => $keywordCount,
-                'source_types' => $sourceTypes,
-                'status' => 'pending',
-                'created_at' => date('Y-m-d H:i:s'),
-            ]);
+            if (empty($keyword)) {
+                $error = '请输入关键词';
+            } else {
+                $taskId = $db->insert('keyword_tasks', [
+                    'user_id' => $userId,
+                    'keyword' => $keyword,
+                    'must_contain' => $mustContain,
+                    'keyword_count' => $keywordCount,
+                    'source_types' => $sourceTypes,
+                    'mining_type' => 'search_engine',
+                    'status' => 'pending',
+                    'created_at' => date('Y-m-d H:i:s'),
+                ]);
 
-            // 后台执行挖词
-            $miner = new KeywordMiner();
-            $count = $miner->executeTask($taskId);
-            
-            $message = "挖词完成！找到 {$count} 个相关关键词";
-            writeLog('keyword', '挖词任务', "关键词:{$keyword}, 找到:{$count}个");
+                $miner = new KeywordMiner();
+                $count = $miner->executeTask($taskId);
+                
+                $message = "挖词完成！找到 {$count} 个相关关键词";
+                writeLog('keyword', '挖词任务', "关键词:{$keyword}, 找到:{$count}个");
+            }
         }
     }
 
@@ -232,6 +259,14 @@ try {
     try { $db->query("ALTER TABLE keyword_tasks ADD COLUMN template_id INT UNSIGNED DEFAULT NULL"); } catch (Exception $e2) {}
 }
 
+// 确保keyword_tasks有mining_type和competitor_url字段（新版本）
+try {
+    $db->fetchOne("SELECT mining_type FROM keyword_tasks LIMIT 1");
+} catch (Exception $e) {
+    try { $db->query("ALTER TABLE keyword_tasks ADD COLUMN mining_type ENUM('search_engine','competitor') NOT NULL DEFAULT 'search_engine' AFTER source_types"); } catch (Exception $e2) {}
+    try { $db->query("ALTER TABLE keyword_tasks ADD COLUMN competitor_url VARCHAR(500) DEFAULT NULL AFTER mining_type"); } catch (Exception $e2) {}
+}
+
 // 任务列表
 $pageNum = max(1, intval($_GET['page'] ?? 1));
 $perPage = 20;
@@ -329,13 +364,17 @@ try {
                                             <?php endif; ?>
                                         </td>
                                         <td><small><?php
-                                            $sourceNames = ['suggest' => '百度下拉词', 'related' => '百度相关词', 'also_search' => '大家还在搜'];
-                                            $sources = explode(',', $task['source_types']);
-                                            $display = [];
-                                            foreach ($sources as $s) {
-                                                $display[] = $sourceNames[trim($s)] ?? trim($s);
+                                            $sourceNames = ['suggest' => '百度下拉词', 'related' => '百度相关词', 'also_search' => '大家还在搜', 'longtail' => '长尾词挖掘', 'bidwords' => '竞价词挖掘', 'indexwords' => '指数词挖掘', 'competitor' => '竞争对手'];
+                                            if (($task['mining_type'] ?? 'search_engine') === 'competitor') {
+                                                echo '<span class="badge bg-danger">竞争对手</span> ' . e($task['competitor_url'] ?? '');
+                                            } else {
+                                                $sources = explode(',', $task['source_types']);
+                                                $display = [];
+                                                foreach ($sources as $s) {
+                                                    $display[] = $sourceNames[trim($s)] ?? trim($s);
+                                                }
+                                                echo e(implode(', ', $display));
                                             }
-                                            echo e(implode(', ', $display));
                                         ?></small></td>
                                         <td><?php
                                             if (!empty($task['bound_site_id'])) {
@@ -435,7 +474,7 @@ try {
                                     <td><?php echo $idx + 1; ?></td>
                                     <td><?php echo e($row['keyword']); ?></td>
                                     <td><span class="badge bg-light text-dark"><?php
-                                        $sourceNames = ['suggest' => '百度下拉词', 'related' => '百度相关词', 'also_search' => '大家还在搜', 'baidu' => '百度'];
+                                        $sourceNames = ['suggest' => '百度下拉词', 'related' => '百度相关词', 'also_search' => '大家还在搜', 'baidu' => '百度', 'longtail' => '长尾词挖掘', 'bidwords' => '竞价词挖掘', 'indexwords' => '指数词挖掘', 'competitor' => '竞争对手'];
                                         echo e($sourceNames[$row['source']] ?? $row['source']);
                                     ?></span></td>
                                     <td>
@@ -495,37 +534,86 @@ try {
                 <div class="modal-body">
                     <input type="hidden" name="action" value="add_task">
                     
+                    <!-- 挖词模式选择 -->
                     <div class="mb-3">
-                        <label class="form-label">挖词来源</label>
+                        <label class="form-label fw-bold">挖词模式</label>
                         <div>
                             <div class="form-check form-check-inline">
-                                <input class="form-check-input" type="checkbox" name="source_types[]" value="suggest" checked>
-                                <label class="form-check-label">百度下拉词</label>
+                                <input class="form-check-input" type="radio" name="mining_type" id="modeSearchEngine" value="search_engine" checked onchange="toggleMiningMode()">
+                                <label class="form-check-label" for="modeSearchEngine">
+                                    <i class="bi bi-search"></i> A. 挖掘搜索引擎
+                                </label>
                             </div>
                             <div class="form-check form-check-inline">
-                                <input class="form-check-input" type="checkbox" name="source_types[]" value="related" checked>
-                                <label class="form-check-label">百度相关词</label>
-                            </div>
-                            <div class="form-check form-check-inline">
-                                <input class="form-check-input" type="checkbox" name="source_types[]" value="also_search" checked>
-                                <label class="form-check-label">大家还在搜</label>
+                                <input class="form-check-input" type="radio" name="mining_type" id="modeCompetitor" value="competitor" onchange="toggleMiningMode()">
+                                <label class="form-check-label" for="modeCompetitor">
+                                    <i class="bi bi-globe"></i> B. 挖掘竞争对手
+                                </label>
                             </div>
                         </div>
                     </div>
 
-                    <div class="mb-3">
-                        <label class="form-label">关键词数量</label>
-                        <input type="number" name="keyword_count" class="form-control" value="50" min="10" max="500">
+                    <!-- 搜索引擎模式区域 -->
+                    <div id="searchEngineSection">
+                        <div class="mb-3">
+                            <label class="form-label">挖词来源</label>
+                            <div>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="checkbox" name="source_types[]" value="suggest" checked>
+                                    <label class="form-check-label">百度下拉词</label>
+                                </div>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="checkbox" name="source_types[]" value="related" checked>
+                                    <label class="form-check-label">百度相关词</label>
+                                </div>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="checkbox" name="source_types[]" value="also_search" checked>
+                                    <label class="form-check-label">大家还在搜</label>
+                                </div>
+                            </div>
+                            <div class="mt-1">
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="checkbox" name="source_types[]" value="longtail">
+                                    <label class="form-check-label">长尾词挖掘</label>
+                                </div>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="checkbox" name="source_types[]" value="bidwords">
+                                    <label class="form-check-label">竞价词挖掘</label>
+                                </div>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="checkbox" name="source_types[]" value="indexwords">
+                                    <label class="form-check-label">指数词挖掘</label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">关键词数量</label>
+                            <input type="number" name="keyword_count" class="form-control" value="50" min="10" max="500">
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">关键词/主词 <span class="text-danger">*</span></label>
+                            <input type="text" name="keyword" class="form-control" placeholder="如：SWITCH游戏">
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">必须包含词（选填，空格分隔）</label>
+                            <input type="text" name="must_contain" class="form-control" placeholder="如：seo 文章 生成">
+                        </div>
                     </div>
 
-                    <div class="mb-3">
-                        <label class="form-label">关键词/主词 <span class="text-danger">*</span></label>
-                        <input type="text" name="keyword" class="form-control" required placeholder="如：SWITCH游戏">
-                    </div>
-
-                    <div class="mb-3">
-                        <label class="form-label">必须包含词（选填，空格分隔）</label>
-                        <input type="text" name="must_contain" class="form-control" placeholder="如：seo 文章 生成">
+                    <!-- 竞争对手模式区域 -->
+                    <div id="competitorSection" style="display:none">
+                        <div class="mb-3">
+                            <label class="form-label">关键词数量</label>
+                            <input type="number" name="keyword_count_comp" class="form-control" value="50" min="10" max="500" id="keywordCountComp">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">竞争站网址 <span class="text-danger">*</span></label>
+                            <input type="text" name="competitor_url" class="form-control" id="competitorUrlInput" placeholder="请输入竞争站网址，如 https://example.com">
+                            <small class="form-text text-muted">系统将自动分析竞争站的标题、关键词、内容等，提取有流量的关键词</small>
+                        </div>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -685,13 +773,45 @@ function copyAllKeywords() {
     APP.copyText(keywords.join("\\n"));
 }
 
+// 切换挖词模式
+function toggleMiningMode() {
+    const isCompetitor = document.getElementById("modeCompetitor").checked;
+    document.getElementById("searchEngineSection").style.display = isCompetitor ? "none" : "block";
+    document.getElementById("competitorSection").style.display = isCompetitor ? "block" : "none";
+}
+
 // AJAX挖词 - Fix #11
 document.getElementById("addTaskForm").addEventListener("submit", function(e) {
     e.preventDefault();
     const form = this;
     const btn = document.getElementById("btnStartMining");
-    const formData = new FormData(form);
+    const isCompetitor = document.getElementById("modeCompetitor").checked;
 
+    // 验证
+    if (isCompetitor) {
+        const url = document.getElementById("competitorUrlInput").value.trim();
+        if (!url) {
+            alert("请输入竞争站网址");
+            return;
+        }
+        // 同步keyword_count
+        const countComp = document.getElementById("keywordCountComp");
+        if (countComp) {
+            const mainCount = form.querySelector("input[name=keyword_count]");
+            if (mainCount) mainCount.value = countComp.value;
+        }
+        // 竞争对手模式下设置keyword为URL
+        const kwInput = form.querySelector("input[name=keyword]");
+        if (kwInput) kwInput.value = url;
+    } else {
+        const kw = form.querySelector("input[name=keyword]").value.trim();
+        if (!kw) {
+            alert("请输入关键词");
+            return;
+        }
+    }
+
+    const formData = new FormData(form);
     btn.disabled = true;
     btn.innerHTML = \'<span class="spinner-border spinner-border-sm"></span> 挖掘中...\';
 

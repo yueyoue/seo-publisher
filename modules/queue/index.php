@@ -101,7 +101,10 @@ function getCategoryName($db, $siteId, $categoryId) {
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h4 class="mb-0"><i class="bi bi-clock-history"></i> 发布队列</h4>
         <div>
-            <button class="btn btn-success btn-sm" id="btnProcessQueue" onclick="processQueue()">
+            <button class="btn btn-warning btn-sm" id="btnBatchCancel" onclick="batchCancelPublish()" style="display:none">
+                <i class="bi bi-x-circle"></i> 批量取消发送
+            </button>
+            <button class="btn btn-success btn-sm ms-1" id="btnProcessQueue" onclick="processQueue()">
                 <i class="bi bi-play-circle"></i> 立即处理队列
             </button>
             <button class="btn btn-outline-secondary btn-sm ms-1" onclick="location.reload()">
@@ -217,12 +220,14 @@ function getCategoryName($db, $siteId, $categoryId) {
                 <table class="table table-hover mb-0">
                     <thead>
                         <tr>
+                            <th width="30"><input type="checkbox" id="selectAllQueue" title="全选"></th>
                             <th>关键词 / 标题</th>
                             <th>发布目标</th>
                             <th>栏目</th>
                             <th>计划时间</th>
                             <th>状态</th>
                             <th>结果</th>
+                            <th>操作</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -240,6 +245,7 @@ function getCategoryName($db, $siteId, $categoryId) {
                         <?php else: ?>
                             <?php foreach ($articles as $article): ?>
                             <tr>
+                                <td><input type="checkbox" class="queue-checkbox" value="<?php echo $article['id']; ?>"></td>
                                 <td>
                                     <div><strong><?php echo e(mb_substr($article['keyword'], 0, 30)); ?></strong></div>
                                     <?php if (!empty($article['title'])): ?>
@@ -304,6 +310,15 @@ function getCategoryName($db, $siteId, $categoryId) {
                                         <small class="text-info">发布中...</small>
                                     <?php endif; ?>
                                 </td>
+                                <td>
+                                    <?php if ($article['status'] === 'scheduled' || $article['status'] === 'publishing'): ?>
+                                        <button class="btn btn-outline-warning btn-sm" onclick="cancelPublish([<?php echo $article['id']; ?>])" title="取消发送">
+                                            <i class="bi bi-x-circle"></i> 取消
+                                        </button>
+                                    <?php else: ?>
+                                        <span class="text-muted">-</span>
+                                    <?php endif; ?>
+                                </td>
                             </tr>
                             <?php endforeach; ?>
                         <?php endif; ?>
@@ -346,6 +361,54 @@ function getCategoryName($db, $siteId, $categoryId) {
 
 <?php
 $extraJs = '<script>
+// 取消发送（单选或批量）
+function cancelPublish(ids) {
+    if (!confirm("确认取消发送？取消后文章将回到「已生成」状态。")) return;
+    fetch("/api/article.php?action=cancel_publish", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ids: ids})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            alert(data.message || "取消成功");
+            location.reload();
+        } else {
+            alert(data.message || "取消失败");
+        }
+    })
+    .catch(err => alert("请求失败: " + err.message));
+}
+
+// 批量取消
+function batchCancelPublish() {
+    const ids = [];
+    document.querySelectorAll(".queue-checkbox:checked").forEach(cb => ids.push(parseInt(cb.value)));
+    if (ids.length === 0) {
+        alert("请先选择要取消的文章");
+        return;
+    }
+    cancelPublish(ids);
+}
+
+// 全选/取消全选
+document.getElementById("selectAllQueue")?.addEventListener("change", function() {
+    document.querySelectorAll(".queue-checkbox").forEach(cb => cb.checked = this.checked);
+    updateBatchCancelBtn();
+});
+
+// 监听checkbox变化，显示/隐藏批量取消按钮
+document.querySelectorAll(".queue-checkbox").forEach(cb => {
+    cb.addEventListener("change", updateBatchCancelBtn);
+});
+
+function updateBatchCancelBtn() {
+    const checked = document.querySelectorAll(".queue-checkbox:checked").length;
+    const btn = document.getElementById("btnBatchCancel");
+    if (btn) btn.style.display = checked > 0 ? "inline-block" : "none';
+}
+
 // 自动刷新（每30秒）
 let refreshTimer = null;
 function startAutoRefresh() {
