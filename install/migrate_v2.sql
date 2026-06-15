@@ -58,6 +58,10 @@ CREATE TABLE IF NOT EXISTS `site_publish_settings` (
 ALTER TABLE `articles` ADD COLUMN `publish_site_id` INT UNSIGNED DEFAULT NULL AFTER `publish_post_id`;
 ALTER TABLE `articles` ADD COLUMN `publish_category_id` VARCHAR(50) DEFAULT NULL AFTER `publish_site_id`;
 ALTER TABLE `articles` ADD COLUMN `template_id` INT UNSIGNED DEFAULT NULL AFTER `publish_category_id`;
+ALTER TABLE `articles` ADD COLUMN `publish_at` DATETIME DEFAULT NULL AFTER `published_at`;
+
+-- 修复articles.status枚举，添加scheduled状态（如果尚未包含）
+ALTER TABLE `articles` MODIFY COLUMN `status` ENUM('pending','generating','generated','scheduled','publishing','published','failed') NOT NULL DEFAULT 'pending';
 
 -- ============================================================
 -- keyword_tasks 表新增字段（任务级别绑定）

@@ -29,6 +29,14 @@ try {
     try { $db->query("ALTER TABLE articles ADD COLUMN publish_at DATETIME DEFAULT NULL AFTER published_at"); } catch (Exception $e2) {}
 }
 
+// 确保articles.status枚举包含scheduled状态
+try {
+    $col = $db->fetchOne("SHOW COLUMNS FROM articles WHERE Field='status'");
+    if ($col && strpos($col['Type'], 'scheduled') === false) {
+        $db->query("ALTER TABLE articles MODIFY COLUMN status ENUM('pending','generating','generated','scheduled','publishing','published','failed') NOT NULL DEFAULT 'pending'");
+    }
+} catch (Exception $e) {}
+
 // 确保article_templates表存在
 try {
     $db->fetchOne("SELECT 1 FROM article_templates LIMIT 1");
