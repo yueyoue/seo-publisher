@@ -363,6 +363,22 @@ switch ($action) {
         jsonResponse(['total' => 0, 'done' => 0, 'current' => '', 'current_error' => '']);
         break;
 
+    case 'stop_generate':
+        // 停止生成：将generating状态重置为pending
+        try {
+            $resetCount = $db->update('articles', ['status' => 'pending', 'error_message' => null], 'user_id=? AND status="generating"', [$userId]);
+            // 清除进度文件
+            $progressFile = UPLOAD_PATH . "progress_{$userId}.json";
+            if (file_exists($progressFile)) {
+                @unlink($progressFile);
+            }
+            writeLog('article', '停止生成', "已重置{$resetCount}篇生成中的文章");
+            jsonResponse(['success' => true, 'message' => '已停止生成', 'reset_count' => $resetCount]);
+        } catch (Exception $e) {
+            jsonResponse(['success' => false, 'message' => '停止失败: ' . $e->getMessage()]);
+        }
+        break;
+
     case 'start_publish':
         try {
             $articles = $db->fetchAll(

@@ -350,7 +350,16 @@ $stats = [
                 <div class="progress">
                     <div id="progressBar" class="progress-bar" style="width:0%"></div>
                 </div>
-                <small id="progressStatus" class="text-muted mt-2 d-block"></small>
+                <div class="mt-2">
+                    <small id="progressKeyword" class="text-muted d-block"></small>
+                    <small id="progressError" class="text-danger d-block" style="display:none"></small>
+                    <small id="progressStatus" class="text-muted d-block"></small>
+                </div>
+                <div class="mt-2">
+                    <button class="btn btn-danger btn-sm" id="btnStopGenerate" style="display:none" onclick="stopGenerate()">
+                        <i class="bi bi-stop-circle"></i> 停止生成
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -407,13 +416,14 @@ $stats = [
                             <th>字数</th>
                             <th>图片</th>
                             <th>状态</th>
+                            <th>失败原因</th>
                             <th>发布时间</th>
                             <th>操作</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php if (empty($articles)): ?>
-                            <tr><td colspan="10" class="text-center text-muted py-4">暂无文章，请先导入关键词</td></tr>
+                            <tr><td colspan="11" class="text-center text-muted py-4">暂无文章，请先导入关键词</td></tr>
                         <?php else: ?>
                             <?php foreach ($articles as $article): ?>
                             <tr>
@@ -447,6 +457,11 @@ $stats = [
                                     echo $imgCount > 0 ? '<span class="badge bg-info">' . $imgCount . '</span>' : '<span class="text-muted">0</span>';
                                 ?></td>
                                 <td><?php echo statusText($article['status']); ?></td>
+                                <td><?php if ($article['status'] === 'failed' && !empty($article['error_message'])): ?>
+                                    <small class="text-danger" title="<?php echo e($article['error_message']); ?>"><?php echo e(mb_substr($article['error_message'], 0, 40)); ?></small>
+                                <?php else: ?>
+                                    <span class="text-muted">-</span>
+                                <?php endif; ?></td>
                                 <td><small class="text-muted"><?php echo $article['published_at'] ? timeAgo($article['published_at']) : ($article['publish_at'] && $article['status'] === 'scheduled' ? '计划: ' . date('m-d H:i', strtotime($article['publish_at'])) : '-'); ?></small></td>
                                 <td>
                                     <div class="btn-group btn-group-sm">
@@ -941,6 +956,10 @@ document.getElementById("btnGenerate")?.addEventListener("click", function(e) {
     const progressDiv = document.getElementById("generateProgress");
     progressDiv.style.display = "block";
     document.getElementById("progressStatus").textContent = "正在启动...";
+    document.getElementById("progressKeyword").textContent = "";
+    document.getElementById("progressError").style.display = "none";
+    document.getElementById("btnStopGenerate").style.display = "inline-block";
+    document.getElementById("btnGenerate").disabled = true;
 
     // 调用批量生成（服务端会循环处理所有文章，支持断点恢复）
     fetch("/api/article.php?action=batch_generate", {
@@ -953,16 +972,24 @@ document.getElementById("btnGenerate")?.addEventListener("click", function(e) {
             if (data.success && data.total > 0) {
                 document.getElementById("progressStatus").textContent = "生成完成！共处理 " + data.total + " 篇";
                 document.getElementById("progressStatus").className = "text-success mt-2 d-block";
+                document.getElementById("progressKeyword").textContent = "";
+                document.getElementById("progressError").style.display = "none";
+                document.getElementById("btnStopGenerate").style.display = "none";
+                document.getElementById("btnGenerate").disabled = false;
                 setTimeout(() => location.reload(), 2000);
             } else {
                 alert(data.message || "没有待生成的文章");
                 progressDiv.style.display = "none";
+                document.getElementById("btnStopGenerate").style.display = "none";
+                document.getElementById("btnGenerate").disabled = false;
             }
         })
         .catch(err => {
             // 浏览器断开不影响服务端继续生成
             document.getElementById("progressStatus").textContent = "连接中断，服务端仍在生成中，刷新页面可查看进度";
             document.getElementById("progressStatus").className = "text-warning mt-2 d-block";
+            document.getElementById("btnStopGenerate").style.display = "none";
+            document.getElementById("btnGenerate").disabled = false;
         });
 
     // 同时启动轮询，实时显示进度
@@ -1006,7 +1033,30 @@ document.getElementById("btnPublish")?.addEventListener("click", function(e) {
 });
 
 // 跟踪上一次的关键词，用于判断是否切换到新文章
-let lastPolledKeyword = \'\';
+let lastPolledKeyword = '';
+let generateAborted = false;
+
+function stopGenerate() {
+    if (!confirm('确认停止生成？\n正在生成的当前文章会完成，之后的任务将停止。')) return;
+    generateAborted = true;
+    document.getElementById("btnStopGenerate").disabled = true;
+    document.getElementById("btnStopGenerate").innerHTML = '<span class="spinner-border spinner-border-sm"></span> 停止中...';
+    fetch("/api/article.php?action=stop_generate", {method:"POST"})
+        .then(r => r.json())
+        .then(data => {
+            document.getElementById("progressStatus").textContent = "已停止生成";
+            document.getElementById("progressStatus").className = "text-warning mt-2 d-block";
+            document.getElementById("progressKeyword").textContent = "";
+            document.getElementById("progressError").style.display = "none";
+            document.getElementById("btnStopGenerate").style.display = "none";
+            document.getElementById("btnGenerate").disabled = false;
+            setTimeout(() => location.reload(), 1500);
+        })
+        .catch(() => {
+            document.getElementById("btnStopGenerate").disabled = false;
+            document.getElementById("btnStopGenerate").innerHTML = '<i class="bi bi-stop-circle"></i> 停止生成';
+        });
+}
 
 function pollProgress(total) {
     fetch("/api/article.php?action=generate_status")
@@ -1026,28 +1076,42 @@ function pollProgress(total) {
                 lastPolledKeyword = currentKeyword;
             }
 
-            // 只显示当前文章的状态和错误
-            let statusText = "当前: " + (currentKeyword || "处理中...");
+            // 分开显示当前关键词和错误信息
+            const keywordEl = document.getElementById("progressKeyword");
+            const errorEl = document.getElementById("progressError");
+            const statusEl = document.getElementById("progressStatus");
+
+            keywordEl.textContent = "当前: " + (currentKeyword || "处理中...");
+
+            // 错误信息独立显示，不覆盖关键词
             if (currentError) {
-                statusText += " ⚠️ " + currentError;
-                document.getElementById("progressStatus").className = "text-danger mt-2 d-block";
+                errorEl.textContent = "⚠️ " + currentError;
+                errorEl.style.display = "block";
             } else {
-                document.getElementById("progressStatus").className = "text-muted mt-2 d-block";
+                errorEl.style.display = "none";
             }
-            document.getElementById("progressStatus").textContent = statusText;
+
+            statusEl.textContent = "";
             
             if (currentKeyword !== "完成" && (done < t || data.current !== "完成")) {
-                setTimeout(() => pollProgress(t), 3000);
+                if (!generateAborted) {
+                    setTimeout(() => pollProgress(t), 3000);
+                }
             } else {
                 document.getElementById("progressBar").style.width = "100%";
-                const failedCount = (data.done || 0) - (data.done - (data.failed || 0));
-                document.getElementById("progressStatus").textContent = "生成完成！";
-                document.getElementById("progressStatus").className = "text-success mt-2 d-block";
+                keywordEl.textContent = "";
+                errorEl.style.display = "none";
+                statusEl.textContent = "生成完成！";
+                statusEl.className = "text-success mt-2 d-block";
+                document.getElementById("btnStopGenerate").style.display = "none";
+                document.getElementById("btnGenerate").disabled = false;
                 setTimeout(() => location.reload(), 2000);
             }
         })
         .catch(() => {
-            setTimeout(() => pollProgress(total), 5000);
+            if (!generateAborted) {
+                setTimeout(() => pollProgress(total), 5000);
+            }
         });
 }
 
