@@ -304,6 +304,9 @@ $stats = [
                         <button type="button" class="btn btn-success btn-sm" id="btnGenerate">
                                 <i class="bi bi-play-circle"></i> 开始生成
                             </button>
+                            <button type="button" class="btn btn-warning btn-sm" id="btnIncrementalToolbar" onclick="incrementalGenerate()" style="display:none">
+                                <i class="bi bi-plus-circle"></i> 增量生成
+                            </button>
                             <button type="button" class="btn btn-primary btn-sm" id="btnPublish">
                                 <i class="bi bi-send"></i> 开始发布
                             </button>
@@ -358,6 +361,9 @@ $stats = [
                 <div class="mt-2">
                     <button class="btn btn-danger btn-sm" id="btnStopGenerate" style="display:none" onclick="stopGenerate()">
                         <i class="bi bi-stop-circle"></i> 停止生成
+                    </button>
+                    <button class="btn btn-warning btn-sm" id="btnIncrementalGenerate" style="display:none" onclick="incrementalGenerate()">
+                        <i class="bi bi-plus-circle"></i> 增量生成
                     </button>
                 </div>
             </div>
@@ -1041,6 +1047,8 @@ function stopGenerate() {
     generateAborted = true;
     document.getElementById("btnStopGenerate").disabled = true;
     document.getElementById("btnStopGenerate").innerHTML = \'<span class="spinner-border spinner-border-sm"></span> 停止中...\';
+    document.getElementById("btnIncrementalGenerate").style.display = "none";
+    document.getElementById("btnIncrementalToolbar").style.display = "none";
     fetch("/api/article.php?action=stop_generate", {method:"POST"})
         .then(r => r.json())
         .then(data => {
@@ -1056,6 +1064,49 @@ function stopGenerate() {
             document.getElementById("btnStopGenerate").disabled = false;
             document.getElementById("btnStopGenerate").innerHTML = \'<i class="bi bi-stop-circle"></i> 停止生成\';
         });
+}
+
+function incrementalGenerate() {
+    const checked = document.querySelectorAll(".article-checkbox:checked");
+    const ids = [];
+    checked.forEach(cb => ids.push(parseInt(cb.value)));
+    if (ids.length === 0) {
+        alert("请先勾选要增量生成的文章");
+        return;
+    }
+    const progressDiv = document.getElementById("generateProgress");
+    progressDiv.style.display = "block";
+    document.getElementById("progressStatus").textContent = "正在增量添加...";
+    document.getElementById("progressKeyword").textContent = "";
+    document.getElementById("progressError").style.display = "none";
+    document.getElementById("btnStopGenerate").style.display = "inline-block";
+    document.getElementById("btnStopGenerate").disabled = false;
+    document.getElementById("btnStopGenerate").innerHTML = \'<i class="bi bi-stop-circle"></i> 停止生成\';
+    generateAborted = false;
+    fetch("/api/article.php?action=incremental_generate", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ids: ids})
+    })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                document.getElementById("progressStatus").textContent = "增量生成完成！";
+                document.getElementById("progressStatus").className = "text-success mt-2 d-block";
+                document.getElementById("btnStopGenerate").style.display = "none";
+                document.getElementById("btnIncrementalGenerate").style.display = "none";
+                document.getElementById("btnIncrementalToolbar").style.display = "none";
+                document.getElementById("btnGenerate").disabled = false;
+                setTimeout(() => location.reload(), 2000);
+            } else {
+                alert(data.message || "增量生成失败");
+            }
+        })
+        .catch(err => {
+            document.getElementById("progressStatus").textContent = "连接中断，服务端仍在生成中";
+            document.getElementById("progressStatus").className = "text-warning mt-2 d-block";
+        });
+    if (typeof pollProgress === "function") pollProgress();
 }
 
 function pollProgress(total) {
@@ -1095,10 +1146,26 @@ function pollProgress(total) {
 
             statusEl.textContent = "";
             
-            if (currentKeyword !== "完成" && (done < t || data.current !== "完成")) {
+            // 生成进行中时显示增量生成按钮
+            if (currentKeyword !== "完成" && currentKeyword !== "已停止" && (done < t || data.current !== "完成")) {
+                document.getElementById("btnIncrementalGenerate").style.display = "inline-block";
+                document.getElementById("btnIncrementalToolbar").style.display = "inline-block";
                 if (!generateAborted) {
                     setTimeout(() => pollProgress(t), 3000);
                 }
+            } else if (currentKeyword === "已停止") {
+                // 已停止状态
+                document.getElementById("progressBar").style.width = pct + "%";
+                keywordEl.textContent = "";
+                errorEl.style.display = "none";
+                statusEl.textContent = "已停止生成";
+                statusEl.className = "text-warning mt-2 d-block";
+                document.getElementById("btnStopGenerate").style.display = "none";
+                document.getElementById("btnIncrementalGenerate").style.display = "none";
+                document.getElementById("btnIncrementalToolbar").style.display = "none";
+                document.getElementById("btnGenerate").disabled = false;
+                setTimeout(() => location.reload(), 2000);
+                return;
             } else {
                 document.getElementById("progressBar").style.width = "100%";
                 keywordEl.textContent = "";

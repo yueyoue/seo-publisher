@@ -81,6 +81,7 @@ CREATE TABLE IF NOT EXISTS `keyword_tasks` (
     `user_id` int(11) UNSIGNED NOT NULL,
     `keyword` varchar(255) NOT NULL,
     `must_contain` varchar(500) DEFAULT NULL,
+    `exclude_contain` varchar(500) DEFAULT NULL,
     `keyword_count` int(11) NOT NULL DEFAULT 50,
     `source_types` varchar(100) NOT NULL DEFAULT 'suggest,related,also_search',
     `found_count` int(11) NOT NULL DEFAULT 0,

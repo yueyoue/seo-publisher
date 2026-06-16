@@ -250,11 +250,35 @@ switch ($action) {
         // 逐篇生成（服务端循环，浏览器断开也不会中断）
         $doneCount = 0;
         $failCount = 0;
+        $stopFile = UPLOAD_PATH . "stop_{$userId}.flag";
+        // 清除之前的停止标志
+        if (file_exists($stopFile)) @unlink($stopFile);
 
         foreach ($pending as $article) {
+            // 检查停止标志
+            if (file_exists($stopFile)) {
+                @unlink($stopFile);
+                // 将剩余generating状态重置为pending
+                $db->update('articles', ['status' => 'pending', 'error_message' => null], 'user_id=? AND status="generating"', [$userId]);
+                // 更新进度为已停止
+                file_put_contents($progressFile, json_encode([
+                    'total' => $totalArticles,
+                    'done' => $doneCount + $failCount,
+                    'current' => '已停止',
+                    'current_error' => '',
+                    'started_at' => $startedAt,
+                ]));
+                writeLog('article', '生成已停止', "已完成{$doneCount}篇，失败{$failCount}篇");
+                jsonResponse(['success' => true, 'total' => $totalArticles, 'done' => $doneCount + $failCount, 'failed' => $failCount, 'stopped' => true]);
+                break;
+            }
+
             // 重新检查状态（可能已被其他进程处理）
             $current = $db->fetchOne("SELECT status FROM articles WHERE id=?", [$article['id']]);
             if (!$current || $current['status'] !== 'generating') continue;
+
+            // 记录文章开始生成时间（用于超时检测）
+            $articleStartTime = time();
 
             // 获取配置 - 优先使用文章绑定的模板
             $config = null;
@@ -294,8 +318,24 @@ switch ($action) {
                 $failCount++;
                 $currentError = '未配置API Key';
             } else {
+                // 更新进度：开始生成当前文章
+                file_put_contents($progressFile, json_encode([
+                    'total' => $totalArticles,
+                    'done' => $doneCount + $failCount,
+                    'current' => $article['keyword'],
+                    'current_error' => '',
+                    'started_at' => $startedAt,
+                    'article_started_at' => $articleStartTime,
+                ]));
+
                 $generator = new AIGenerator();
                 $result = $generator->generateArticle($article['keyword'], $config);
+
+                // 超时检测：如果文章生成耗时超过3分钟，记录警告
+                $articleElapsed = time() - $articleStartTime;
+                if ($articleElapsed > 180) {
+                    writeLog('article', '文章生成超时', "关键词:{$article['keyword']}, 耗时:{$articleElapsed}秒", $userId);
+                }
 
                 if ($result['success']) {
                     $wordCount = mb_strlen(strip_tags($result['content']));
@@ -331,14 +371,16 @@ switch ($action) {
             usleep(500000);
         }
 
-        // 最终进度
-        file_put_contents($progressFile, json_encode([
-            'total' => $totalArticles,
-            'done' => $doneCount + $failCount,
-            'current' => '完成',
-            'current_error' => '',
-            'started_at' => $startedAt,
-        ]));
+        // 最终进度（如果没有被停止）
+        if (!file_exists($stopFile)) {
+            file_put_contents($progressFile, json_encode([
+                'total' => $totalArticles,
+                'done' => $doneCount + $failCount,
+                'current' => '完成',
+                'current_error' => '',
+                'started_at' => $startedAt,
+            ]));
+        }
 
         writeLog('article', '批量生成完成', "成功{$doneCount}篇，失败{$failCount}篇");
         jsonResponse(['success' => true, 'total' => $totalArticles, 'done' => $doneCount + $failCount, 'failed' => $failCount]);
@@ -353,7 +395,7 @@ switch ($action) {
             // 同时检查是否还有正在生成的文章
             $stillGenerating = $db->count('articles', 'user_id=? AND status="generating"', [$userId]);
 
-            if ($stillGenerating === 0 && ($progress['current'] ?? '') !== '完成') {
+            if ($stillGenerating === 0 && ($progress['current'] ?? '') !== '完成' && ($progress['current'] ?? '') !== '已停止') {
                 $progress['current'] = '完成';
             }
             // 确保done不超过total
@@ -366,18 +408,138 @@ switch ($action) {
         break;
 
     case 'stop_generate':
-        // 停止生成：将generating状态重置为pending
+        // 停止生成：写入停止标志文件，让batch_generate循环自然退出
         try {
-            $resetCount = $db->update('articles', ['status' => 'pending', 'error_message' => null], 'user_id=? AND status="generating"', [$userId]);
-            // 清除进度文件
-            $progressFile = UPLOAD_PATH . "progress_{$userId}.json";
-            if (file_exists($progressFile)) {
-                @unlink($progressFile);
-            }
-            writeLog('article', '停止生成', "已重置{$resetCount}篇生成中的文章");
-            jsonResponse(['success' => true, 'message' => '已停止生成', 'reset_count' => $resetCount]);
+            $stopFile = UPLOAD_PATH . "stop_{$userId}.flag";
+            file_put_contents($stopFile, date('Y-m-d H:i:s'));
+            writeLog('article', '停止生成', '已发送停止信号');
+            jsonResponse(['success' => true, 'message' => '已发送停止信号，当前文章完成后将停止']);
         } catch (Exception $e) {
             jsonResponse(['success' => false, 'message' => '停止失败: ' . $e->getMessage()]);
+        }
+        break;
+
+    case 'incremental_generate':
+        // 增量生成：将选中的文章添加到当前生成进度中
+        ignore_user_abort(true);
+        set_time_limit(0);
+
+        try {
+            $input = json_decode(file_get_contents('php://input'), true);
+            $selectedIds = $input['ids'] ?? [];
+
+            if (empty($selectedIds)) {
+                jsonResponse(['success' => false, 'message' => '请选择要生成的文章']);
+            }
+
+            // 获取选中的pending文章
+            $placeholders = implode(',', array_fill(0, count($selectedIds), '?'));
+            $pending = $db->fetchAll(
+                "SELECT * FROM articles WHERE user_id=? AND id IN ({$placeholders}) AND status='pending'",
+                array_merge([$userId], $selectedIds)
+            );
+
+            if (empty($pending)) {
+                jsonResponse(['success' => false, 'message' => '没有待生成的文章']);
+            }
+
+            // 标记为生成中
+            foreach ($pending as $article) {
+                $db->update('articles', ['status' => 'generating'], 'id=?', [$article['id']]);
+            }
+
+            // 更新进度文件：追加到现有进度
+            $progressFile = UPLOAD_PATH . "progress_{$userId}.json";
+            $existingTotal = 0;
+            $existingDone = 0;
+            if (file_exists($progressFile)) {
+                $existingProgress = json_decode(file_get_contents($progressFile), true);
+                $existingTotal = $existingProgress['total'] ?? 0;
+                $existingDone = $existingProgress['done'] ?? 0;
+            }
+
+            $newTotal = $existingTotal + count($pending);
+            file_put_contents($progressFile, json_encode([
+                'total' => $newTotal,
+                'done' => $existingDone,
+                'current' => '增量添加中...',
+                'current_error' => '',
+                'started_at' => date('Y-m-d H:i:s'),
+            ]));
+
+            // 释放session锁
+            session_write_close();
+
+            // 检查API Key
+            $config = $db->fetchOne("SELECT * FROM global_config WHERE user_id=?", [$userId]);
+            if (!$config || empty($config['api_key'])) {
+                jsonResponse(['success' => false, 'message' => '请先配置API Key']);
+            }
+
+            // 逐篇生成
+            $doneCount = 0;
+            $failCount = 0;
+            $stopFile = UPLOAD_PATH . "stop_{$userId}.flag";
+
+            foreach ($pending as $article) {
+                // 检查停止标志
+                if (file_exists($stopFile)) {
+                    @unlink($stopFile);
+                    // 将剩余generating状态重置为pending
+                    $db->update('articles', ['status' => 'pending', 'error_message' => null], 'user_id=? AND status="generating"', [$userId]);
+                    break;
+                }
+
+                // 重新检查状态
+                $current = $db->fetchOne("SELECT status FROM articles WHERE id=?", [$article['id']]);
+                if (!$current || $current['status'] !== 'generating') continue;
+
+                // 获取配置
+                $articleConfig = null;
+                if (!empty($article['template_id'])) {
+                    try {
+                        $articleConfig = $db->fetchOne("SELECT * FROM article_templates WHERE id=? AND user_id=?", [$article['template_id'], $userId]);
+                    } catch (Exception $e) {}
+                }
+                if (!$articleConfig) {
+                    $articleConfig = $config;
+                }
+
+                $generator = new AIGenerator();
+                $result = $generator->generateArticle($article['keyword'], $articleConfig);
+
+                if ($result['success']) {
+                    $wordCount = mb_strlen(strip_tags($result['content']));
+                    $db->update('articles', [
+                        'title' => $result['title'],
+                        'content' => $result['content'],
+                        'content_type' => ($articleConfig['export_content_type'] ?? 'html') === 'html' ? 'html' : 'text',
+                        'word_count' => $wordCount,
+                        'status' => 'generated',
+                    ], 'id=?', [$article['id']]);
+                    $doneCount++;
+                } else {
+                    $db->update('articles', [
+                        'status' => 'failed',
+                        'error_message' => $result['message'] ?? '生成失败',
+                    ], 'id=?', [$article['id']]);
+                    $failCount++;
+                }
+
+                // 更新进度
+                $progressData = json_decode(file_get_contents($progressFile), true);
+                $progressData['done'] = ($progressData['done'] ?? 0) + 1;
+                $progressData['current'] = $article['keyword'];
+                $progressData['current_error'] = $result['success'] ? '' : ($result['message'] ?? '生成失败');
+                file_put_contents($progressFile, json_encode($progressData));
+
+                usleep(500000);
+            }
+
+            writeLog('article', '增量生成完成', "成功{$doneCount}篇，失败{$failCount}篇");
+            jsonResponse(['success' => true, 'total' => count($pending), 'done' => $doneCount, 'failed' => $failCount]);
+        } catch (Exception $e) {
+            jsonResponse(['success' => false, 'message' => '增量生成失败: ' . $e->getMessage()]);
         }
         break;
 

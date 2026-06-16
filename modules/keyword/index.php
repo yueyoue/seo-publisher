@@ -21,6 +21,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $keyword = trim($_POST['keyword'] ?? '');
         $keywordCount = intval($_POST['keyword_count'] ?? 50);
         $mustContain = trim($_POST['must_contain'] ?? '');
+        $excludeContain = trim($_POST['exclude_contain'] ?? '');
         $sourceTypes = isset($_POST['source_types']) ? implode(',', $_POST['source_types']) : 'suggest,related,also_search';
         $miningType = $_POST['mining_type'] ?? 'search_engine';
         $competitorUrl = trim($_POST['competitor_url'] ?? '');
@@ -34,6 +35,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'user_id' => $userId,
                     'keyword' => $competitorUrl,
                     'must_contain' => '',
+                    'exclude_contain' => $excludeContain,
                     'keyword_count' => $keywordCount,
                     'source_types' => '',
                     'mining_type' => 'competitor',
@@ -56,6 +58,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'user_id' => $userId,
                     'keyword' => $keyword,
                     'must_contain' => $mustContain,
+                    'exclude_contain' => $excludeContain,
                     'keyword_count' => $keywordCount,
                     'source_types' => $sourceTypes,
                     'mining_type' => 'search_engine',
@@ -265,6 +268,13 @@ try {
 } catch (Exception $e) {
     try { $db->query("ALTER TABLE keyword_tasks ADD COLUMN mining_type ENUM('search_engine','competitor') NOT NULL DEFAULT 'search_engine' AFTER source_types"); } catch (Exception $e2) {}
     try { $db->query("ALTER TABLE keyword_tasks ADD COLUMN competitor_url VARCHAR(500) DEFAULT NULL AFTER mining_type"); } catch (Exception $e2) {}
+}
+
+// 确保keyword_tasks有exclude_contain字段
+try {
+    $db->fetchOne("SELECT exclude_contain FROM keyword_tasks LIMIT 1");
+} catch (Exception $e) {
+    try { $db->query("ALTER TABLE keyword_tasks ADD COLUMN exclude_contain VARCHAR(500) DEFAULT NULL AFTER must_contain"); } catch (Exception $e2) {}
 }
 
 // 任务列表
@@ -541,13 +551,13 @@ try {
                             <div class="form-check form-check-inline">
                                 <input class="form-check-input" type="radio" name="mining_type" id="modeSearchEngine" value="search_engine" checked onchange="toggleMiningMode()">
                                 <label class="form-check-label" for="modeSearchEngine">
-                                    <i class="bi bi-search"></i> A. 挖掘搜索引擎
+                                    <i class="bi bi-search"></i> 挖掘搜索引擎
                                 </label>
                             </div>
                             <div class="form-check form-check-inline">
                                 <input class="form-check-input" type="radio" name="mining_type" id="modeCompetitor" value="competitor" onchange="toggleMiningMode()">
                                 <label class="form-check-label" for="modeCompetitor">
-                                    <i class="bi bi-globe"></i> B. 挖掘竞争对手
+                                    <i class="bi bi-globe"></i> 挖掘竞争对手
                                 </label>
                             </div>
                         </div>
@@ -573,15 +583,15 @@ try {
                             </div>
                             <div class="mt-1">
                                 <div class="form-check form-check-inline">
-                                    <input class="form-check-input" type="checkbox" name="source_types[]" value="longtail">
+                                    <input class="form-check-input" type="checkbox" name="source_types[]" value="longtail" checked>
                                     <label class="form-check-label">长尾词挖掘</label>
                                 </div>
                                 <div class="form-check form-check-inline">
-                                    <input class="form-check-input" type="checkbox" name="source_types[]" value="bidwords">
+                                    <input class="form-check-input" type="checkbox" name="source_types[]" value="bidwords" checked>
                                     <label class="form-check-label">竞价词挖掘</label>
                                 </div>
                                 <div class="form-check form-check-inline">
-                                    <input class="form-check-input" type="checkbox" name="source_types[]" value="indexwords">
+                                    <input class="form-check-input" type="checkbox" name="source_types[]" value="indexwords" checked>
                                     <label class="form-check-label">指数词挖掘</label>
                                 </div>
                             </div>
@@ -600,6 +610,12 @@ try {
                         <div class="mb-3">
                             <label class="form-label">必须包含词（选填，空格分隔）</label>
                             <input type="text" name="must_contain" class="form-control" placeholder="如：seo 文章 生成">
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">过滤包含词（选填，空格分隔）</label>
+                            <input type="text" name="exclude_contain" class="form-control" placeholder="如：色情 赌博 诈骗">
+                            <small class="form-text text-muted">填入的词如果出现在关键词中，则过滤掉该关键词。多个词用空格分隔，出现任意一个即过滤。</small>
                         </div>
                     </div>
 

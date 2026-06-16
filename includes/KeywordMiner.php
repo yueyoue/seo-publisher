@@ -533,6 +533,7 @@ class KeywordMiner {
 
         $keyword = $task['keyword'];
         $mustContain = $task['must_contain'] ? array_filter(explode(' ', $task['must_contain'])) : [];
+        $excludeContain = !empty($task['exclude_contain']) ? array_filter(explode(' ', $task['exclude_contain'])) : [];
         $maxCount = $task['keyword_count'] ?: 50;
 
         $miningType = $task['mining_type'] ?? 'search_engine';
@@ -669,6 +670,16 @@ class KeywordMiner {
                     if ($must && mb_strpos($kw, $must) !== false) return true;
                 }
                 return false;
+            });
+        }
+
+        // 过滤排除词（exclude_contain）
+        if (!empty($excludeContain)) {
+            $allKeywords = array_filter($allKeywords, function($kw) use ($excludeContain) {
+                foreach ($excludeContain as $exclude) {
+                    if ($exclude && mb_strpos($kw, $exclude) !== false) return false;
+                }
+                return true;
             });
         }
 
