@@ -809,13 +809,15 @@ switch ($action) {
         break;
 
     case 'process_queue':
-        // 处理发布队列 - 由cron或前端调用，每次处理一篇
+        // 处理发布队列 - 由cron或前端调用
         try {
             $limit = intval($_GET['limit'] ?? 5);
+            if ($limit > 10) $limit = 10;
             $processed = 0;
             $results = [];
 
             for ($i = 0; $i < $limit; $i++) {
+                // 每次重新查询，避免状态变化导致死循环
                 $article = $db->fetchOne(
                     "SELECT * FROM articles WHERE user_id=? AND status='scheduled' AND publish_at <= NOW() ORDER BY publish_at ASC LIMIT 1",
                     [$userId]
@@ -823,7 +825,17 @@ switch ($action) {
 
                 if (!$article) break;
 
-                $ok = publishOneArticle($db, $article, $userId);
+                try {
+                    $ok = publishOneArticle($db, $article, $userId);
+                } catch (Exception $e) {
+                    $ok = false;
+                    // 确保异常时文章状态更新为failed，不卡在publishing
+                    $db->update('articles', [
+                        'status' => 'failed',
+                        'error_message' => '发布异常: ' . $e->getMessage(),
+                    ], 'id=? AND status="publishing"', [$article['id']]);
+                }
+
                 $processed++;
                 $results[] = [
                     'id' => $article['id'],
@@ -831,18 +843,18 @@ switch ($action) {
                     'success' => $ok,
                 ];
 
-                // 短暂间隔避免API限流
+                // 间隔避免API限流
                 if ($i < $limit - 1) {
-                    usleep(500000); // 0.5秒
+                    usleep(300000); // 0.3秒
                 }
             }
 
             $remaining = $db->count('articles', "user_id=? AND status='scheduled' AND publish_at <= NOW()", [$userId]);
             $totalScheduled = $db->count('articles', "user_id=? AND status='scheduled'", [$userId]);
             $nextPublish = null;
-            if ($processed === 0 && $totalScheduled > 0) {
+            if ($totalScheduled > 0) {
                 $next = $db->fetchOne(
-                    "SELECT publish_at FROM articles WHERE user_id=? AND status='scheduled' AND publish_at > NOW() ORDER BY publish_at ASC LIMIT 1",
+                    "SELECT publish_at FROM articles WHERE user_id=? AND status='scheduled' ORDER BY publish_at ASC LIMIT 1",
                     [$userId]
                 );
                 $nextPublish = $next ? $next['publish_at'] : null;
