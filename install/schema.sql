@@ -59,7 +59,7 @@ CREATE TABLE IF NOT EXISTS `articles` (
     `title` varchar(500) NOT NULL,
     `content` text NOT NULL,
     `content_type` enum('html','text') NOT NULL DEFAULT 'html',
-    `status` enum('pending','generating','generated','scheduled','publishing','published','failed') NOT NULL DEFAULT 'pending',
+    `status` enum('draft','pending','generating','generated','scheduled','publishing','published','failed') NOT NULL DEFAULT 'draft',
     `error_message` text DEFAULT NULL,
     `word_count` int(11) NOT NULL DEFAULT 0,
     `publish_site` varchar(255) DEFAULT NULL,

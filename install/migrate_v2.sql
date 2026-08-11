@@ -61,7 +61,7 @@ ALTER TABLE `articles` ADD COLUMN `template_id` INT UNSIGNED DEFAULT NULL AFTER 
 ALTER TABLE `articles` ADD COLUMN `publish_at` DATETIME DEFAULT NULL AFTER `published_at`;
 
 -- 修复articles.status枚举，添加scheduled状态（如果尚未包含）
-ALTER TABLE `articles` MODIFY COLUMN `status` ENUM('pending','generating','generated','scheduled','publishing','published','failed') NOT NULL DEFAULT 'pending';
+ALTER TABLE `articles` MODIFY COLUMN `status` ENUM('draft','pending','generating','generated','scheduled','publishing','published','failed') NOT NULL DEFAULT 'draft';
 
 -- ============================================================
 -- keyword_tasks 表新增字段（任务级别绑定）
