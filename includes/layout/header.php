@@ -61,6 +61,11 @@ if (isset($_SESSION['user_id'])) {
                         </a>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link <?php echo ($page ?? '') === 'genqueue' ? 'active' : ''; ?>" href="/modules/genqueue/index.php">
+                            <i class="bi bi-hourglass-split"></i> 生成队列
+                        </a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link <?php echo ($page ?? '') === 'queue' ? 'active' : ''; ?>" href="/modules/queue/index.php">
                             <i class="bi bi-clock-history"></i> 发布队列
                         </a>

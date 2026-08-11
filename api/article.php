@@ -545,10 +545,21 @@ switch ($action) {
 
     case 'start_publish':
         try {
-            $articles = $db->fetchAll(
-                "SELECT * FROM articles WHERE user_id=? AND status='generated' LIMIT 50",
-                [$userId]
-            );
+            $input = json_decode(file_get_contents('php://input'), true);
+            $selectedIds = $input['ids'] ?? [];
+
+            if (!empty($selectedIds)) {
+                $placeholders = implode(',', array_fill(0, count($selectedIds), '?'));
+                $articles = $db->fetchAll(
+                    "SELECT * FROM articles WHERE user_id=? AND id IN ({$placeholders}) AND status='generated' LIMIT 50",
+                    array_merge([$userId], $selectedIds)
+                );
+            } else {
+                $articles = $db->fetchAll(
+                    "SELECT * FROM articles WHERE user_id=? AND status='generated' LIMIT 50",
+                    [$userId]
+                );
+            }
 
             if (empty($articles)) {
                 jsonResponse(['success' => false, 'message' => '没有待发布的文章，请先生成文章']);
@@ -784,6 +795,43 @@ switch ($action) {
         } catch (Exception $e) {
             jsonResponse(['success' => false, 'message' => '取消失败: ' . $e->getMessage()]);
         }
+        break;
+
+    case 'add_to_genqueue':
+        // 将选中的文章加入生成队列（标记为pending）
+        $input = json_decode(file_get_contents('php://input'), true);
+        $selectedIds = $input['ids'] ?? [];
+
+        if (empty($selectedIds)) {
+            jsonResponse(['success' => false, 'message' => '请选择要加入生成队列的文章']);
+        }
+
+        $placeholders = implode(',', array_fill(0, count($selectedIds), '?'));
+        // 只处理pending和failed状态的文章
+        $db->query(
+            "UPDATE articles SET status='pending', error_message=NULL WHERE id IN ({$placeholders}) AND user_id=? AND status IN ('pending','failed')",
+            array_merge($selectedIds, [$userId])
+        );
+        $affected = $db->affected();
+        writeLog('article', '加入生成队列', "已添加{$affected}篇文章");
+        jsonResponse(['success' => true, 'message' => "已添加 {$affected} 篇文章到生成队列"]);
+        break;
+
+    case 'retry_generate':
+        // 重试失败的文章
+        $input = json_decode(file_get_contents('php://input'), true);
+        $selectedIds = $input['ids'] ?? [];
+
+        if (empty($selectedIds)) {
+            jsonResponse(['success' => false, 'message' => '请选择要重试的文章']);
+        }
+
+        $placeholders = implode(',', array_fill(0, count($selectedIds), '?'));
+        $db->query(
+            "UPDATE articles SET status='pending', error_message=NULL WHERE id IN ({$placeholders}) AND user_id=? AND status='failed'",
+            array_merge($selectedIds, [$userId])
+        );
+        jsonResponse(['success' => true, 'message' => '已重置为待生成状态']);
         break;
 
     case 'export':

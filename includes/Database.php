@@ -36,6 +36,10 @@ class Database {
         return $stmt;
     }
 
+    public function affected() {
+        return $this->pdo->rowCount();
+    }
+
     public function fetchAll($sql, $params = []) {
         return $this->query($sql, $params)->fetchAll();
     }

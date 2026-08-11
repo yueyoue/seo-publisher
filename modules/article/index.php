@@ -301,15 +301,12 @@ $stats = [
                         <span class="badge bg-danger">失败: <?php echo $stats['failed']; ?></span>
                     </div>
                     <div class="col-auto ms-auto">
-                        <button type="button" class="btn btn-success btn-sm" id="btnGenerate">
-                                <i class="bi bi-play-circle"></i> 开始生成
-                            </button>
-                            <button type="button" class="btn btn-warning btn-sm" id="btnIncrementalToolbar" onclick="incrementalGenerate()" style="display:none">
-                                <i class="bi bi-plus-circle"></i> 增量生成
-                            </button>
-                            <button type="button" class="btn btn-primary btn-sm" id="btnPublish">
-                                <i class="bi bi-send"></i> 开始发布
-                            </button>
+                        <button type="button" class="btn btn-success btn-sm" id="btnAddToQueue" onclick="addToQueue()">
+                            <i class="bi bi-plus-circle"></i> 加入生成队列
+                        </button>
+                        <button type="button" class="btn btn-primary btn-sm" id="btnPublish">
+                            <i class="bi bi-send"></i> 开始发布
+                        </button>
                         <button class="btn btn-outline-secondary btn-sm ms-1" onclick="location.reload()">
                             <i class="bi bi-arrow-clockwise"></i> 刷新
                         </button>
@@ -337,34 +334,6 @@ $stats = [
                             <button type="submit" class="btn btn-outline-danger btn-sm" onclick="return confirm('确认清空？')"><i class="bi bi-trash"></i> 清空文章</button>
                         </form>
                     </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- 生成进度 -->
-    <div id="generateProgress" style="display:none" class="mb-3">
-        <div class="card">
-            <div class="card-body">
-                <div class="d-flex justify-content-between mb-2">
-                    <span>生成进度</span>
-                    <span id="progressText">0 / 0</span>
-                </div>
-                <div class="progress">
-                    <div id="progressBar" class="progress-bar" style="width:0%"></div>
-                </div>
-                <div class="mt-2">
-                    <small id="progressKeyword" class="text-muted d-block"></small>
-                    <small id="progressError" class="text-danger d-block" style="display:none"></small>
-                    <small id="progressStatus" class="text-muted d-block"></small>
-                </div>
-                <div class="mt-2">
-                    <button class="btn btn-danger btn-sm" id="btnStopGenerate" style="display:none" onclick="stopGenerate()">
-                        <i class="bi bi-stop-circle"></i> 停止生成
-                    </button>
-                    <button class="btn btn-warning btn-sm" id="btnIncrementalGenerate" style="display:none" onclick="incrementalGenerate()">
-                        <i class="bi bi-plus-circle"></i> 增量生成
-                    </button>
                 </div>
             </div>
         </div>
@@ -950,57 +919,33 @@ document.getElementById("selectAll")?.addEventListener("change", function() {
     document.querySelectorAll(".article-checkbox").forEach(cb => cb.checked = this.checked);
 });
 
-// 后台生成 - 按钮直接绑定AJAX
-document.getElementById("btnGenerate")?.addEventListener("click", function(e) {
-    e.preventDefault();
-
-    // 获取勾选的文章ID
+// 加入生成队列
+function addToQueue() {
     const checked = document.querySelectorAll(".article-checkbox:checked");
     const ids = [];
     checked.forEach(cb => ids.push(parseInt(cb.value)));
+    if (ids.length === 0) {
+        alert("请先勾选要加入生成队列的文章");
+        return;
+    }
+    if (!confirm("确认将 " + ids.length + " 篇文章加入生成队列？")) return;
 
-    const progressDiv = document.getElementById("generateProgress");
-    progressDiv.style.display = "block";
-    document.getElementById("progressStatus").textContent = "正在启动...";
-    document.getElementById("progressKeyword").textContent = "";
-    document.getElementById("progressError").style.display = "none";
-    document.getElementById("btnStopGenerate").style.display = "inline-block";
-    document.getElementById("btnGenerate").disabled = true;
-
-    // 调用批量生成（服务端会循环处理所有文章，支持断点恢复）
-    fetch("/api/article.php?action=batch_generate", {
+    fetch("/api/article.php?action=add_to_genqueue", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({ids: ids})
     })
-        .then(r => r.json())
-        .then(data => {
-            if (data.success && data.total > 0) {
-                document.getElementById("progressStatus").textContent = "生成完成！共处理 " + data.total + " 篇";
-                document.getElementById("progressStatus").className = "text-success mt-2 d-block";
-                document.getElementById("progressKeyword").textContent = "";
-                document.getElementById("progressError").style.display = "none";
-                document.getElementById("btnStopGenerate").style.display = "none";
-                document.getElementById("btnGenerate").disabled = false;
-                setTimeout(() => location.reload(), 2000);
-            } else {
-                alert(data.message || "没有待生成的文章");
-                progressDiv.style.display = "none";
-                document.getElementById("btnStopGenerate").style.display = "none";
-                document.getElementById("btnGenerate").disabled = false;
-            }
-        })
-        .catch(err => {
-            // 浏览器断开不影响服务端继续生成
-            document.getElementById("progressStatus").textContent = "连接中断，服务端仍在生成中，刷新页面可查看进度";
-            document.getElementById("progressStatus").className = "text-warning mt-2 d-block";
-            document.getElementById("btnStopGenerate").style.display = "none";
-            document.getElementById("btnGenerate").disabled = false;
-        });
-
-    // 同时启动轮询，实时显示进度
-    pollProgress();
-});
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            alert(data.message || "已加入生成队列");
+            location.reload();
+        } else {
+            alert(data.message || "操作失败");
+        }
+    })
+    .catch(err => alert("请求失败: " + err.message));
+}
 
 // 开始发布
 document.getElementById("btnPublish")?.addEventListener("click", function(e) {
@@ -1037,152 +982,6 @@ document.getElementById("btnPublish")?.addEventListener("click", function(e) {
             alert("请求失败: " + err.message);
         });
 });
-
-// 跟踪上一次的关键词，用于判断是否切换到新文章
-let lastPolledKeyword = \'\';
-let generateAborted = false;
-
-function stopGenerate() {
-    if (!confirm(\'确认停止生成？\\n正在生成的当前文章会完成，之后的任务将停止。\')) return;
-    generateAborted = true;
-    document.getElementById("btnStopGenerate").disabled = true;
-    document.getElementById("btnStopGenerate").innerHTML = \'<span class="spinner-border spinner-border-sm"></span> 停止中...\';
-    document.getElementById("btnIncrementalGenerate").style.display = "none";
-    document.getElementById("btnIncrementalToolbar").style.display = "none";
-    fetch("/api/article.php?action=stop_generate", {method:"POST"})
-        .then(r => r.json())
-        .then(data => {
-            document.getElementById("progressStatus").textContent = "已停止生成";
-            document.getElementById("progressStatus").className = "text-warning mt-2 d-block";
-            document.getElementById("progressKeyword").textContent = "";
-            document.getElementById("progressError").style.display = "none";
-            document.getElementById("btnStopGenerate").style.display = "none";
-            document.getElementById("btnGenerate").disabled = false;
-            setTimeout(() => location.reload(), 1500);
-        })
-        .catch(() => {
-            document.getElementById("btnStopGenerate").disabled = false;
-            document.getElementById("btnStopGenerate").innerHTML = \'<i class="bi bi-stop-circle"></i> 停止生成\';
-        });
-}
-
-function incrementalGenerate() {
-    const checked = document.querySelectorAll(".article-checkbox:checked");
-    const ids = [];
-    checked.forEach(cb => ids.push(parseInt(cb.value)));
-    if (ids.length === 0) {
-        alert("请先勾选要增量生成的文章");
-        return;
-    }
-    const progressDiv = document.getElementById("generateProgress");
-    progressDiv.style.display = "block";
-    document.getElementById("progressStatus").textContent = "正在增量添加...";
-    document.getElementById("progressKeyword").textContent = "";
-    document.getElementById("progressError").style.display = "none";
-    document.getElementById("btnStopGenerate").style.display = "inline-block";
-    document.getElementById("btnStopGenerate").disabled = false;
-    document.getElementById("btnStopGenerate").innerHTML = \'<i class="bi bi-stop-circle"></i> 停止生成\';
-    generateAborted = false;
-    fetch("/api/article.php?action=incremental_generate", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({ids: ids})
-    })
-        .then(r => r.json())
-        .then(data => {
-            if (data.success) {
-                document.getElementById("progressStatus").textContent = "增量生成完成！";
-                document.getElementById("progressStatus").className = "text-success mt-2 d-block";
-                document.getElementById("btnStopGenerate").style.display = "none";
-                document.getElementById("btnIncrementalGenerate").style.display = "none";
-                document.getElementById("btnIncrementalToolbar").style.display = "none";
-                document.getElementById("btnGenerate").disabled = false;
-                setTimeout(() => location.reload(), 2000);
-            } else {
-                alert(data.message || "增量生成失败");
-            }
-        })
-        .catch(err => {
-            document.getElementById("progressStatus").textContent = "连接中断，服务端仍在生成中";
-            document.getElementById("progressStatus").className = "text-warning mt-2 d-block";
-        });
-    if (typeof pollProgress === "function") pollProgress();
-}
-
-function pollProgress(total) {
-    fetch("/api/article.php?action=generate_status")
-        .then(r => r.json())
-        .then(data => {
-            let done = data.done || 0;
-            let t = data.total || total;
-            // 确保done不超过total，避免显示 2/1 这样的错误
-            if (done > t) done = t;
-            const pct = t > 0 ? Math.round((done / t) * 100) : 0;
-            document.getElementById("progressBar").style.width = pct + "%";
-            document.getElementById("progressText").textContent = done + " / " + t;
-
-            const currentKeyword = data.current || "";
-            const currentError = data.current_error || "";
-
-            // 切换到新文章时，清除上一条的错误信息
-            if (currentKeyword !== lastPolledKeyword) {
-                lastPolledKeyword = currentKeyword;
-            }
-
-            // 分开显示当前关键词和错误信息
-            const keywordEl = document.getElementById("progressKeyword");
-            const errorEl = document.getElementById("progressError");
-            const statusEl = document.getElementById("progressStatus");
-
-            keywordEl.textContent = "当前: " + (currentKeyword || "处理中...");
-
-            // 错误信息独立显示，不覆盖关键词
-            if (currentError) {
-                errorEl.textContent = "⚠️ " + currentError;
-                errorEl.style.display = "block";
-            } else {
-                errorEl.style.display = "none";
-            }
-
-            statusEl.textContent = "";
-            
-            // 生成进行中时显示增量生成按钮
-            if (currentKeyword !== "完成" && currentKeyword !== "已停止" && (done < t || data.current !== "完成")) {
-                document.getElementById("btnIncrementalGenerate").style.display = "inline-block";
-                document.getElementById("btnIncrementalToolbar").style.display = "inline-block";
-                if (!generateAborted) {
-                    setTimeout(() => pollProgress(t), 3000);
-                }
-            } else if (currentKeyword === "已停止") {
-                // 已停止状态
-                document.getElementById("progressBar").style.width = pct + "%";
-                keywordEl.textContent = "";
-                errorEl.style.display = "none";
-                statusEl.textContent = "已停止生成";
-                statusEl.className = "text-warning mt-2 d-block";
-                document.getElementById("btnStopGenerate").style.display = "none";
-                document.getElementById("btnIncrementalGenerate").style.display = "none";
-                document.getElementById("btnIncrementalToolbar").style.display = "none";
-                document.getElementById("btnGenerate").disabled = false;
-                setTimeout(() => location.reload(), 2000);
-                return;
-            } else {
-                document.getElementById("progressBar").style.width = "100%";
-                keywordEl.textContent = "";
-                errorEl.style.display = "none";
-                statusEl.textContent = "生成完成！";
-                statusEl.className = "text-success mt-2 d-block";
-                document.getElementById("btnStopGenerate").style.display = "none";
-                document.getElementById("btnGenerate").disabled = false;
-                setTimeout(() => location.reload(), 2000);
-            }
-        })
-        .catch(() => {
-            if (!generateAborted) {
-                setTimeout(() => pollProgress(total), 5000);
-            }
-        });
-}
 
 // 批量设置栏目
 function batchSetCategory() {
@@ -1306,21 +1105,6 @@ if (document.getElementById("queueStatusCard")) {
     checkQueueStatus();
 }
 </script>';
-
-// 页面加载时自动恢复：如果有正在生成的文章，自动追加到extraJs
-if ($stats['generating'] > 0) {
-    $extraJs .= '<script>
-    (function() {
-        var generatingCount = ' . intval($stats['generating']) . ';
-        var progressDiv = document.getElementById("generateProgress");
-        if (progressDiv) {
-            progressDiv.style.display = "block";
-            document.getElementById("progressStatus").textContent = "检测到 " + generatingCount + " 篇正在生成的文章，自动恢复进度监控...";
-            if (typeof pollProgress === "function") pollProgress();
-        }
-    })();
-    </script>';
-}
 
 require_once __DIR__ . '/../../includes/layout/footer.php';
 ?>
