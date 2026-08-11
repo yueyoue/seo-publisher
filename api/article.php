@@ -2,6 +2,8 @@
 /**
  * 文章API
  */
+error_reporting(E_ERROR | E_PARSE);
+ini_set('display_errors', 0);
 ob_start();
 require_once __DIR__ . '/../config/init.php';
 require_once ROOT_PATH . '/includes/Functions.php';
@@ -899,15 +901,27 @@ switch ($action) {
             jsonResponse(['success' => false, 'message' => '请选择要加入生成队列的文章']);
         }
 
+        // 确保ID为整数
+        $selectedIds = array_map('intval', $selectedIds);
+        $selectedIds = array_filter($selectedIds);
+
+        if (empty($selectedIds)) {
+            jsonResponse(['success' => false, 'message' => '请选择要加入生成队列的文章']);
+        }
+
         $placeholders = implode(',', array_fill(0, count($selectedIds), '?'));
         // 处理draft、pending和failed状态的文章
-        $db->query(
-            "UPDATE articles SET status='pending', error_message=NULL WHERE id IN ({$placeholders}) AND user_id=? AND status IN ('draft','pending','failed')",
-            array_merge($selectedIds, [$userId])
-        );
-        $affected = $db->affected();
-        writeLog('article', '加入生成队列', "已添加{$affected}篇文章");
-        jsonResponse(['success' => true, 'message' => "已添加 {$affected} 篇文章到生成队列"]);
+        try {
+            $db->query(
+                "UPDATE articles SET status='pending', error_message=NULL WHERE id IN ({$placeholders}) AND user_id=? AND status IN ('draft','pending','failed')",
+                array_merge($selectedIds, [$userId])
+            );
+            $affected = $db->affected();
+            writeLog('article', '加入生成队列', "已添加{$affected}篇文章");
+            jsonResponse(['success' => true, 'message' => "已添加 {$affected} 篇文章到生成队列"]);
+        } catch (Exception $e) {
+            jsonResponse(['success' => false, 'message' => '操作失败: ' . $e->getMessage()]);
+        }
         break;
 
     case 'retry_generate':
