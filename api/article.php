@@ -2,13 +2,26 @@
 /**
  * 文章API
  */
-error_reporting(E_ERROR | E_PARSE);
+error_reporting(0);
 ini_set('display_errors', 0);
-ob_start();
+
+// 确保任何PHP错误都返回JSON而不是HTML
+register_shutdown_function(function() {
+    $error = error_get_last();
+    if ($error && in_array($error['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR])) {
+        if (!headers_sent()) {
+            header('Content-Type: application/json; charset=utf-8');
+        }
+        echo json_encode(['success' => false, 'message' => '服务器错误: ' . $error['message']], JSON_UNESCAPED_UNICODE);
+    }
+});
+
 require_once __DIR__ . '/../config/init.php';
 require_once ROOT_PATH . '/includes/Functions.php';
 Auth::check();
-if (ob_get_level()) ob_end_clean();
+
+// 清除可能存在的输出缓冲
+while (ob_get_level()) ob_end_clean();
 
 $db = Database::getInstance();
 $userId = $_SESSION['user_id'];
