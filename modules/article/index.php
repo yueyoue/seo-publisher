@@ -33,7 +33,7 @@ try {
 try {
     $col = $db->fetchOne("SHOW COLUMNS FROM articles WHERE Field='status'");
     if ($col && strpos($col['Type'], 'scheduled') === false) {
-        $db->query("ALTER TABLE articles MODIFY COLUMN status ENUM('pending','generating','generated','scheduled','publishing','published','failed') NOT NULL DEFAULT 'pending'");
+        $db->query("ALTER TABLE articles MODIFY COLUMN status ENUM('draft','pending','generating','generated','scheduled','publishing','published','failed') NOT NULL DEFAULT 'draft'");
     }
 } catch (Exception $e) {}
 
@@ -92,7 +92,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'keyword' => $kw,
                 'title' => $kw,
                 'content' => '',
-                'status' => 'pending',
+                'status' => 'draft',
                 'created_at' => date('Y-m-d H:i:s'),
             ]);
             $savedCount++;
@@ -257,6 +257,7 @@ $total = $db->fetchColumn(
 
 // 统计
 $stats = [
+    'draft' => $db->count('articles', 'user_id=? AND status="draft"', [$userId]),
     'pending' => $db->count('articles', 'user_id=? AND status="pending"', [$userId]),
     'generating' => $db->count('articles', 'user_id=? AND status="generating"', [$userId]),
     'generated' => $db->count('articles', 'user_id=? AND status="generated"', [$userId]),
@@ -293,6 +294,7 @@ $stats = [
                 <div class="row align-items-center">
                     <div class="col-auto">
                         <span class="badge bg-secondary me-2"><i class="bi bi-fonts"></i> 总字数: <?php echo number_format($totalWordCount); ?></span>
+                        <span class="badge bg-light text-dark me-2">草稿: <?php echo $stats['draft']; ?></span>
                         <span class="badge bg-warning me-2">待生成: <?php echo $stats['pending']; ?></span>
                         <span class="badge bg-info me-2">生成中: <?php echo $stats['generating']; ?></span>
                         <span class="badge bg-primary me-2">已生成: <?php echo $stats['generated']; ?></span>
@@ -368,6 +370,7 @@ $stats = [
     <div class="mb-3">
         <div class="btn-group btn-group-sm">
             <a href="?status=" class="btn btn-outline-secondary <?php echo !$statusFilter ? 'active' : ''; ?>">全部</a>
+            <a href="?status=draft" class="btn btn-outline-light <?php echo $statusFilter === 'draft' ? 'active' : ''; ?>">草稿</a>
             <a href="?status=pending" class="btn btn-outline-warning <?php echo $statusFilter === 'pending' ? 'active' : ''; ?>">待生成</a>
             <a href="?status=generated" class="btn btn-outline-primary <?php echo $statusFilter === 'generated' ? 'active' : ''; ?>">已生成</a>
             <a href="?status=scheduled" class="btn btn-outline-secondary <?php echo $statusFilter === 'scheduled' ? 'active' : ''; ?>">待发布</a>

@@ -99,7 +99,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'keyword' => $row['keyword'],
                 'title' => $row['keyword'],
                 'content' => '',
-                'status' => 'pending',
+                'status' => 'draft',
                 'created_at' => date('Y-m-d H:i:s'),
             ];
             // 继承任务绑定的站点和模板
@@ -115,7 +115,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $db->insert('articles', $articleData);
             $count++;
         }
-        $message = "已导入 {$count} 个关键词到文章生成";
+        $message = "已导入 {$count} 个关键词到文章列表";
     }
 
     // 生成单篇文章（继承任务绑定）
@@ -130,7 +130,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'keyword' => $keyword,
                     'title' => $keyword,
                     'content' => '',
-                    'status' => 'pending',
+                    'status' => 'draft',
                     'created_at' => date('Y-m-d H:i:s'),
                 ];
                 // 继承任务绑定的站点和模板
@@ -143,7 +143,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 }
                 $db->insert('articles', $articleData);
-                $message = "已添加「{$keyword}」到文章生成列表";
+                $message = "已添加「{$keyword}」到文章列表";
             } else {
                 $error = '该关键词已存在';
             }

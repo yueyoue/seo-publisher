@@ -23,7 +23,7 @@ try {
 try {
     $col = $db->fetchOne("SHOW COLUMNS FROM articles WHERE Field='status'");
     if ($col && strpos($col['Type'], 'scheduled') === false) {
-        $db->query("ALTER TABLE articles MODIFY COLUMN status ENUM('pending','generating','generated','scheduled','publishing','published','failed') NOT NULL DEFAULT 'pending'");
+        $db->query("ALTER TABLE articles MODIFY COLUMN status ENUM('draft','pending','generating','generated','scheduled','publishing','published','failed') NOT NULL DEFAULT 'draft'");
     }
 } catch (Exception $e) {}
 
@@ -419,6 +419,99 @@ switch ($action) {
         }
         break;
 
+    case 'process_genqueue':
+        // 处理生成队列 - 由cron或前端自动调用，逐篇生成
+        ignore_user_abort(true);
+        set_time_limit(0);
+
+        try {
+            $limit = intval($_GET['limit'] ?? 1);
+
+            // 检查是否已有正在生成的文章
+            $alreadyGenerating = $db->count('articles', 'user_id=? AND status="generating"', [$userId]);
+            if ($alreadyGenerating > 0) {
+                jsonResponse(['success' => true, 'message' => '已有文章正在生成中', 'generating' => $alreadyGenerating]);
+                break;
+            }
+
+            // 检查停止标志
+            $stopFile = UPLOAD_PATH . "stop_{$userId}.flag";
+            if (file_exists($stopFile)) {
+                @unlink($stopFile);
+                jsonResponse(['success' => true, 'message' => '生成已暂停', 'processed' => 0]);
+                break;
+            }
+
+            // 获取待生成文章
+            $pending = $db->fetchAll(
+                "SELECT * FROM articles WHERE user_id=? AND status='pending' ORDER BY id ASC LIMIT ?",
+                [$userId, $limit]
+            );
+
+            if (empty($pending)) {
+                jsonResponse(['success' => true, 'message' => '没有待生成的文章', 'processed' => 0]);
+                break;
+            }
+
+            // 获取配置
+            $hasApiKey = false;
+            $config = null;
+            try {
+                $config = $db->fetchOne("SELECT * FROM article_templates WHERE user_id=? AND api_key IS NOT NULL AND api_key != '' ORDER BY is_default DESC LIMIT 1", [$userId]);
+                $hasApiKey = !empty($config);
+            } catch (Exception $e) {}
+            if (!$hasApiKey) {
+                $config = $db->fetchOne("SELECT * FROM global_config WHERE user_id=?", [$userId]);
+                $hasApiKey = $config && !empty($config['api_key']);
+            }
+            if (!$hasApiKey) {
+                jsonResponse(['success' => false, 'message' => '请先配置API Key']);
+                break;
+            }
+
+            $processed = 0;
+            foreach ($pending as $article) {
+                // 标记为生成中
+                $db->update('articles', ['status' => 'generating'], 'id=?', [$article['id']]);
+
+                // 获取文章专属配置
+                $articleConfig = $config;
+                if (!empty($article['template_id'])) {
+                    try {
+                        $tplConfig = $db->fetchOne("SELECT * FROM article_templates WHERE id=? AND user_id=?", [$article['template_id'], $userId]);
+                        if ($tplConfig) $articleConfig = $tplConfig;
+                    } catch (Exception $e) {}
+                }
+
+                $generator = new AIGenerator();
+                $result = $generator->generateArticle($article['keyword'], $articleConfig);
+
+                if ($result['success']) {
+                    $wordCount = mb_strlen(strip_tags($result['content']));
+                    $db->update('articles', [
+                        'title' => $result['title'],
+                        'content' => $result['content'],
+                        'content_type' => ($articleConfig['export_content_type'] ?? 'html') === 'html' ? 'html' : 'text',
+                        'word_count' => $wordCount,
+                        'status' => 'generated',
+                    ], 'id=?', [$article['id']]);
+                } else {
+                    $db->update('articles', [
+                        'status' => 'failed',
+                        'error_message' => $result['message'] ?? '生成失败',
+                    ], 'id=?', [$article['id']]);
+                }
+                $processed++;
+                usleep(500000);
+            }
+
+            writeLog('article', '生成队列处理', "已处理{$processed}篇文章");
+            jsonResponse(['success' => true, 'processed' => $processed]);
+        } catch (Exception $e) {
+            jsonResponse(['success' => false, 'message' => '处理失败: ' . $e->getMessage()]);
+        }
+        break;
+
     case 'incremental_generate':
         // 增量生成：将选中的文章添加到当前生成进度中
         ignore_user_abort(true);
@@ -807,9 +900,9 @@ switch ($action) {
         }
 
         $placeholders = implode(',', array_fill(0, count($selectedIds), '?'));
-        // 只处理pending和failed状态的文章
+        // 处理draft、pending和failed状态的文章
         $db->query(
-            "UPDATE articles SET status='pending', error_message=NULL WHERE id IN ({$placeholders}) AND user_id=? AND status IN ('pending','failed')",
+            "UPDATE articles SET status='pending', error_message=NULL WHERE id IN ({$placeholders}) AND user_id=? AND status IN ('draft','pending','failed')",
             array_merge($selectedIds, [$userId])
         );
         $affected = $db->affected();

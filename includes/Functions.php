@@ -99,6 +99,7 @@ function timeAgo($datetime) {
  */
 function statusText($status) {
     $map = [
+        'draft' => '<span class="badge bg-light text-dark">草稿</span>',
         'pending' => '<span class="badge bg-warning">待生成</span>',
         'generating' => '<span class="badge bg-info">生成中</span>',
         'generated' => '<span class="badge bg-primary">已生成</span>',

@@ -116,6 +116,9 @@ if (!$hasApiKey) {
             <button class="btn btn-outline-danger btn-sm ms-1" id="btnBatchDelete" onclick="batchDelete()" style="display:none">
                 <i class="bi bi-trash"></i> 删除选中
             </button>
+            <button class="btn btn-outline-danger btn-sm ms-1" id="btnStopGenerateHeader" onclick="stopGenerate()" <?php echo $stats['generating'] > 0 ? '' : 'style="display:none"'; ?>>
+                <i class="bi bi-stop-circle"></i> 停止生成
+            </button>
             <form method="POST" class="d-inline ms-1">
                 <input type="hidden" name="action" value="reset_generating">
                 <button type="submit" class="btn btn-outline-warning btn-sm" onclick="return confirm('确认重置？这会停止当前正在进行的生成任务')">
@@ -394,14 +397,22 @@ function updateActionButtons() {
 // 开始生成
 function startGenerate() {
     const btn = document.getElementById("btnStartGenerate");
+
+    // 检查是否有选中的文章
+    const checked = document.querySelectorAll(".queue-checkbox:checked");
+    const selectedIds = [];
+    checked.forEach(cb => {
+        if (cb.dataset.status === "pending") selectedIds.push(parseInt(cb.value));
+    });
+
     btn.disabled = true;
     btn.innerHTML = \'<span class="spinner-border spinner-border-sm"></span> 启动中...\';
 
-    // 获取排队中的文章ID
+    // 发送选中的ID，空数组表示处理所有pending
     fetch("/api/article.php?action=batch_generate", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({ids: []})  // 空数组表示处理所有pending
+        body: JSON.stringify({ids: selectedIds})
     })
     .then(r => r.json())
     .then(data => {
@@ -413,6 +424,7 @@ function startGenerate() {
             document.getElementById("progressKeyword").textContent = "";
             document.getElementById("progressError").style.display = "none";
             document.getElementById("btnStopGenerate").style.display = "inline-block";
+            document.getElementById("btnStopGenerateHeader").style.display = "inline-block";
             pollProgress(data.total);
         } else {
             alert(data.message || "没有待生成的文章");
@@ -437,6 +449,7 @@ function stopGenerate() {
             document.getElementById("progressStatus").textContent = "已停止生成";
             document.getElementById("progressStatus").className = "text-warning d-block";
             document.getElementById("btnStopGenerate").style.display = "none";
+            document.getElementById("btnStopGenerateHeader").style.display = "none";
             document.getElementById("btnStartGenerate").disabled = false;
             document.getElementById("btnStartGenerate").innerHTML = \'<i class="bi bi-play-circle"></i> 开始生成\';
             setTimeout(() => location.reload(), 1500);
@@ -479,6 +492,7 @@ function pollProgress(total) {
                 document.getElementById("progressStatus").textContent = "已停止生成";
                 document.getElementById("progressStatus").className = "text-warning d-block";
                 document.getElementById("btnStopGenerate").style.display = "none";
+                document.getElementById("btnStopGenerateHeader").style.display = "none";
                 document.getElementById("btnStartGenerate").disabled = false;
                 document.getElementById("btnStartGenerate").innerHTML = \'<i class="bi bi-play-circle"></i> 开始生成\';
                 setTimeout(() => location.reload(), 2000);
@@ -490,6 +504,7 @@ function pollProgress(total) {
                 document.getElementById("progressStatus").textContent = "生成完成！";
                 document.getElementById("progressStatus").className = "text-success d-block";
                 document.getElementById("btnStopGenerate").style.display = "none";
+                document.getElementById("btnStopGenerateHeader").style.display = "none";
                 document.getElementById("btnStartGenerate").disabled = false;
                 document.getElementById("btnStartGenerate").innerHTML = \'<i class="bi bi-play-circle"></i> 开始生成\';
                 setTimeout(() => location.reload(), 2000);
@@ -612,7 +627,7 @@ function batchDelete() {
     });
 }
 
-// 页面加载时检查是否有正在生成的任务
+// 页面加载时检查是否有正在生成的任务或待生成的文章
 </script>';
 
 if ($stats['generating'] > 0) {
@@ -623,7 +638,44 @@ if ($stats['generating'] > 0) {
     document.getElementById("progressStatus").textContent = "检测到 ' . intval($stats['generating']) . ' 篇正在生成的文章，自动恢复进度监控...";
     document.getElementById("btnStartGenerate").disabled = true;
     document.getElementById("btnStartGenerate").innerHTML = \'<span class="spinner-border spinner-border-sm"></span> 生成中...\';
+    document.getElementById("btnStopGenerateHeader").style.display = "inline-block";
     pollProgress();
+})();
+</script>';
+}
+
+// 自动生成：有待生成文章且无正在生成的文章时，自动启动生成
+if ($stats['pending'] > 0 && $stats['generating'] === 0) {
+    $extraJs .= '<script>
+(function() {
+    // 自动启动生成（后台持续运行，关闭浏览器也不中断）
+    const btn = document.getElementById("btnStartGenerate");
+    btn.disabled = true;
+    btn.innerHTML = \'<span class="spinner-border spinner-border-sm"></span> 自动生成中...\';
+    document.getElementById("btnStopGenerateHeader").style.display = "inline-block";
+
+    fetch("/api/article.php?action=batch_generate", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ids: []})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success && data.total > 0) {
+            const progressDiv = document.getElementById("generateProgress");
+            progressDiv.style.display = "block";
+            document.getElementById("progressStatus").textContent = "自动生成中...";
+            document.getElementById("btnStopGenerate").style.display = "inline-block";
+            pollProgress(data.total);
+        } else {
+            btn.disabled = false;
+            btn.innerHTML = \'<i class="bi bi-play-circle"></i> 开始生成\';
+        }
+    })
+    .catch(() => {
+        btn.disabled = false;
+        btn.innerHTML = \'<i class="bi bi-play-circle"></i> 开始生成\';
+    });
 })();
 </script>';
 }
