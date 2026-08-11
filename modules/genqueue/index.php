@@ -408,7 +408,20 @@ function startGenerate() {
     btn.disabled = true;
     btn.innerHTML = \'<span class="spinner-border spinner-border-sm"></span> 启动中...\';
 
-    // 发送选中的ID，空数组表示处理所有pending
+    // 立即显示进度条（不等fetch返回）
+    const progressDiv = document.getElementById("generateProgress");
+    progressDiv.style.display = "block";
+    document.getElementById("progressStatus").textContent = "正在启动生成...";
+    document.getElementById("progressKeyword").textContent = "";
+    document.getElementById("progressError").style.display = "none";
+    document.getElementById("btnStopGenerate").style.display = "inline-block";
+    document.getElementById("btnStopGenerateHeader").style.display = "inline-block";
+    btn.innerHTML = \'<span class="spinner-border spinner-border-sm"></span> 生成中...\';
+
+    // 立即开始轮询进度（不等batch_generate返回）
+    pollProgress(0);
+
+    // 发送生成请求（服务端会持续运行，不阻塞前端）
     fetch("/api/article.php?action=batch_generate", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
@@ -416,48 +429,15 @@ function startGenerate() {
     })
     .then(r => r.json())
     .then(data => {
-        if (data.success && data.total > 0) {
-            // 显示进度
-            const progressDiv = document.getElementById("generateProgress");
-            progressDiv.style.display = "block";
-            document.getElementById("progressStatus").textContent = "开始生成...";
-            document.getElementById("progressKeyword").textContent = "";
-            document.getElementById("progressError").style.display = "none";
-            document.getElementById("btnStopGenerate").style.display = "inline-block";
-            document.getElementById("btnStopGenerateHeader").style.display = "inline-block";
-            pollProgress(data.total);
-        } else {
-            alert(data.message || "没有待生成的文章");
+        if (!data.success) {
+            alert(data.message || "启动失败");
+            progressDiv.style.display = "none";
             btn.disabled = false;
             btn.innerHTML = \'<i class="bi bi-play-circle"></i> 开始生成\';
         }
     })
-    .catch(err => {
-        // fetch失败可能是服务端已在处理，稍后检查状态
-        setTimeout(() => {
-            fetch("/api/article.php?action=generate_status")
-                .then(r => r.json())
-                .then(data => {
-                    if (data.total > 0 && data.current !== "完成" && data.current !== "已停止") {
-                        // 服务端正在生成，恢复进度监控
-                        const progressDiv = document.getElementById("generateProgress");
-                        progressDiv.style.display = "block";
-                        document.getElementById("progressStatus").textContent = "恢复生成进度...";
-                        document.getElementById("btnStopGenerate").style.display = "inline-block";
-                        document.getElementById("btnStopGenerateHeader").style.display = "inline-block";
-                        pollProgress(data.total);
-                    } else {
-                        alert("请求失败: " + err.message);
-                        btn.disabled = false;
-                        btn.innerHTML = \'<i class="bi bi-play-circle"></i> 开始生成\';
-                    }
-                })
-                .catch(() => {
-                    alert("请求失败: " + err.message);
-                    btn.disabled = false;
-                    btn.innerHTML = \'<i class="bi bi-play-circle"></i> 开始生成\';
-                });
-        }, 2000);
+    .catch(() => {
+        // fetch失败不影响，服务端可能已在运行，轮询会检测到
     });
 }
 

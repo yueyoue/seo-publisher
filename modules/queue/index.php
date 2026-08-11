@@ -468,6 +468,24 @@ function processQueue() {
             alert("请求失败: " + err.message);
         });
 }
+
+// 自动发布：每30秒检查一次，有到期文章自动处理
+setInterval(function() {
+    fetch("/api/article.php?action=queue_status")
+        .then(r => r.json())
+        .then(data => {
+            if (data.success && data.ready_count > 0) {
+                fetch("/api/article.php?action=process_queue&limit=5")
+                    .then(r => r.json())
+                    .then(result => {
+                        if (result.success && result.processed > 0) {
+                            location.reload();
+                        }
+                    });
+            }
+        })
+        .catch(() => {});
+}, 30000);
 </script>';
 
 require_once __DIR__ . '/../../includes/layout/footer.php';
