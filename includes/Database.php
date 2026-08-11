@@ -5,18 +5,40 @@
 class Database {
     private static $instance = null;
     private $pdo;
+    private $dsn;
+    private $user;
+    private $pass;
+    private $options;
 
     private function __construct() {
+        $this->dsn = 'mysql:host=' . DB_HOST . ';dbname=' . DB_NAME . ';charset=' . DB_CHARSET;
+        $this->user = DB_USER;
+        $this->pass = DB_PASS;
+        $this->options = [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES => false,
+        ];
+        $this->connect();
+    }
+
+    private function connect() {
         try {
-            $dsn = 'mysql:host=' . DB_HOST . ';dbname=' . DB_NAME . ';charset=' . DB_CHARSET;
-            $this->pdo = new PDO($dsn, DB_USER, DB_PASS, [
-                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-                PDO::ATTR_EMULATE_PREPARES => false,
-            ]);
+            $this->pdo = new PDO($this->dsn, $this->user, $this->pass, $this->options);
         } catch (PDOException $e) {
             die('数据库连接失败: ' . $e->getMessage());
         }
+    }
+
+    private function reconnect() {
+        $this->connect();
+    }
+
+    private function isGoneAway($e) {
+        $msg = $e->getMessage();
+        return strpos($msg, 'server has gone away') !== false
+            || strpos($msg, 'Lost connection') !== false
+            || strpos($msg, 'Connection was killed') !== false;
     }
 
     public static function getInstance() {
@@ -33,10 +55,22 @@ class Database {
     private $lastStmt = null;
 
     public function query($sql, $params = []) {
-        $stmt = $this->pdo->prepare($sql);
-        $stmt->execute($params);
-        $this->lastStmt = $stmt;
-        return $stmt;
+        try {
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute($params);
+            $this->lastStmt = $stmt;
+            return $stmt;
+        } catch (PDOException $e) {
+            if ($this->isGoneAway($e)) {
+                // 连接断开，自动重连并重试
+                $this->reconnect();
+                $stmt = $this->pdo->prepare($sql);
+                $stmt->execute($params);
+                $this->lastStmt = $stmt;
+                return $stmt;
+            }
+            throw $e;
+        }
     }
 
     public function affected() {
