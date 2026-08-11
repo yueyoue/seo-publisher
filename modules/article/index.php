@@ -973,8 +973,9 @@ function oneClickGeneratePublish() {
 
     const btn = document.getElementById("btnOneClick");
     btn.disabled = true;
-    btn.innerHTML = \'<span class="spinner-border spinner-border-sm"></span> 处理中...\';
+    btn.innerHTML = \'<span class="spinner-border spinner-border-sm"></span> 提交中...\';
 
+    // 第一步：标记文章为pending + 写自动发布标记
     fetch("/api/article.php?action=one_click_publish", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
@@ -982,14 +983,30 @@ function oneClickGeneratePublish() {
     })
     .then(r => r.json())
     .then(data => {
-        if (data.success) {
-            alert(data.message || "操作已提交");
-            location.reload();
-        } else {
+        if (!data.success) {
             alert(data.message || "操作失败");
             btn.disabled = false;
             btn.innerHTML = \'<i class="bi bi-lightning-charge"></i> 一键生成发布\';
+            return;
         }
+
+        // 第二步：跳转到生成队列页面并自动开始生成
+        btn.innerHTML = \'<span class="spinner-border spinner-border-sm"></span> 启动生成中...\';
+
+        fetch("/api/article.php?action=batch_generate", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({ids: ids})
+        })
+        .then(r => r.json())
+        .then(genData => {
+            // 跳转到生成队列页面查看进度
+            window.location.href = "/modules/genqueue/index.php";
+        })
+        .catch(() => {
+            // 即使batch_generate请求失败（可能已在后台运行），也跳转到队列页面
+            window.location.href = "/modules/genqueue/index.php";
+        });
     })
     .catch(err => {
         alert("请求失败: " + err.message);
