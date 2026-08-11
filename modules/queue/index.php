@@ -335,25 +335,31 @@ function getCategoryName($db, $siteId, $categoryId) {
     <div class="card mt-4 border-warning">
         <div class="card-body">
             <h6><i class="bi bi-info-circle text-warning"></i> 后台自动发布配置</h6>
-            <p class="mb-2 small text-muted">要实现7×24小时自动发布（无需打开浏览器），请在服务器上配置定时任务：</p>
-            
-            <h6 class="mt-3"><i class="bi bi-terminal"></i> 方式一：CLI模式（推荐）</h6>
-            <div class="bg-dark text-light p-2 rounded small">
-                <code>* * * * * php <?php echo ROOT_PATH; ?>/cron/publish.php >> <?php echo ROOT_PATH; ?>/cron/publish.log 2>&1</code>
-            </div>
-            <p class="mt-1 mb-2 small text-muted">
-                宝塔面板用户：面板 → 计划任务 → 添加「Shell脚本」类型任务，粘贴上方命令，执行周期选"每分钟"。<br>
-                <strong>注意：</strong>宝塔添加时请确保使用的是「Shell脚本」类型，而非「PHP脚本」类型，避免产生 BT-Panel 报错。
-            </p>
+            <p class="mb-3 small text-muted">要实现7×24小时自动发布（无需打开浏览器），请按以下步骤配置：</p>
 
-            <h6 class="mt-3"><i class="bi bi-globe"></i> 方式二：URL触发（宝塔URL任务推荐）</h6>
-            <div class="bg-dark text-light p-2 rounded small">
-                <code><?php echo (isset($_SERVER['REQUEST_SCHEME']) ? $_SERVER['REQUEST_SCHEME'] : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? '你的域名') . '/cron/publish.php?key=seo-publisher-cron-2024'; ?></code>
+            <div class="alert alert-info small mb-3">
+                <strong>宝塔面板用户：</strong>面板 → 计划任务 → 类型选择「<strong>Shell脚本</strong>」→ 执行周期选「每分钟」→ 粘贴下方命令。<br>
+                <span class="text-danger">⚠ 不要选「PHP脚本」类型！必须选「Shell脚本」类型！</span>
             </div>
-            <p class="mt-1 mb-0 small text-muted">
-                宝塔面板用户：面板 → 计划任务 → 添加「访问URL」类型任务，粘贴上方地址，执行周期选"每分钟"。<br>
-                文章生成：<code>/cron/generate.php?key=seo-publisher-cron-2024</code>（建议每2分钟执行一次）
-            </p>
+
+            <div class="mb-3">
+                <label class="form-label fw-bold">发布任务（每分钟执行）</label>
+                <div class="bg-dark text-light p-2 rounded small">
+                    <code>* * * * * /usr/bin/php <?php echo ROOT_PATH; ?>/cron/publish.php >> <?php echo ROOT_PATH; ?>/cron/publish.log 2>&1</code>
+                </div>
+            </div>
+
+            <div class="mb-2">
+                <label class="form-label fw-bold">验证方式</label>
+                <p class="small text-muted mb-1">1. 手动执行一次看是否正常：</p>
+                <div class="bg-dark text-light p-2 rounded small mb-2">
+                    <code>/usr/bin/php <?php echo ROOT_PATH; ?>/cron/publish.php</code>
+                </div>
+                <p class="small text-muted mb-1">2. 查看日志确认：</p>
+                <div class="bg-dark text-light p-2 rounded small">
+                    <code>tail -f <?php echo ROOT_PATH; ?>/cron/publish.log</code>
+                </div>
+            </div>
         </div>
     </div>
     <?php endif; ?>

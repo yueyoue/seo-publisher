@@ -306,8 +306,8 @@ $stats = [
                         <button type="button" class="btn btn-success btn-sm" id="btnAddToQueue" onclick="addToQueue()">
                             <i class="bi bi-plus-circle"></i> 加入生成队列
                         </button>
-                        <button type="button" class="btn btn-primary btn-sm" id="btnPublish">
-                            <i class="bi bi-send"></i> 开始发布
+                        <button type="button" class="btn btn-primary btn-sm" id="btnOneClick" onclick="oneClickGeneratePublish()">
+                            <i class="bi bi-lightning-charge"></i> 一键生成发布
                         </button>
                         <button class="btn btn-outline-secondary btn-sm ms-1" onclick="location.reload()">
                             <i class="bi bi-arrow-clockwise"></i> 刷新
@@ -950,41 +950,43 @@ function addToQueue() {
     .catch(err => alert("请求失败: " + err.message));
 }
 
-// 开始发布
-document.getElementById("btnPublish")?.addEventListener("click", function(e) {
-    e.preventDefault();
-    if (!confirm("确认发布已生成的文章到网站吗？\n\n如有发布间隔设置，文章将按设定时间排队发布。")) return;
+// 一键生成发布
+function oneClickGeneratePublish() {
+    const checked = document.querySelectorAll(".article-checkbox:checked");
+    const ids = [];
+    checked.forEach(cb => ids.push(parseInt(cb.value)));
+    if (ids.length === 0) {
+        alert("请先勾选要处理的文章");
+        return;
+    }
+    if (!confirm("确认一键生成并发布 " + ids.length + " 篇文章？\n\n流程：加入生成队列 → 自动生成 → 自动发布到网站")) return;
 
-    const btn = this;
+    const btn = document.getElementById("btnOneClick");
     btn.disabled = true;
     btn.innerHTML = \'<span class="spinner-border spinner-border-sm"></span> 处理中...\';
 
-    fetch("/api/article.php?action=start_publish", {method:"POST"})
-        .then(r => {
-            return r.text().then(text => {
-                try {
-                    return JSON.parse(text);
-                } catch (e) {
-                    throw new Error("服务器返回了非JSON响应: " + text.substring(0, 200).replace(/<[^>]*>/g, \'\'));
-                }
-            });
-        })
-        .then(data => {
+    fetch("/api/article.php?action=one_click_publish", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ids: ids})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            alert(data.message || "操作已提交");
+            location.reload();
+        } else {
+            alert(data.message || "操作失败");
             btn.disabled = false;
-            btn.innerHTML = \'<i class="bi bi-send"></i> 开始发布\';
-            if (data.success) {
-                alert(data.message || "操作完成");
-                location.reload();
-            } else {
-                alert("发布失败: " + (data.message || "未知错误"));
-            }
-        })
-        .catch(err => {
-            btn.disabled = false;
-            btn.innerHTML = \'<i class="bi bi-send"></i> 开始发布\';
-            alert("请求失败: " + err.message);
-        });
-});
+            btn.innerHTML = \'<i class="bi bi-lightning-charge"></i> 一键生成发布\';
+        }
+    })
+    .catch(err => {
+        alert("请求失败: " + err.message);
+        btn.disabled = false;
+        btn.innerHTML = \'<i class="bi bi-lightning-charge"></i> 一键生成发布\';
+    });
+}
 
 // 批量设置栏目
 function batchSetCategory() {

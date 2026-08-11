@@ -949,6 +949,190 @@ switch ($action) {
         }
         break;
 
+    case 'one_click_publish':
+        // 一键生成发布：选中文章 → 生成 → 自动发布
+        ignore_user_abort(true);
+        set_time_limit(0);
+
+        $input = json_decode(file_get_contents('php://input'), true);
+        $selectedIds = $input['ids'] ?? [];
+
+        if (empty($selectedIds)) {
+            jsonResponse(['success' => false, 'message' => '请选择要处理的文章']);
+        }
+
+        $selectedIds = array_map('intval', $selectedIds);
+        $selectedIds = array_filter($selectedIds);
+
+        // 将选中文章标记为pending
+        $placeholders = implode(',', array_fill(0, count($selectedIds), '?'));
+        $db->query(
+            "UPDATE articles SET status='pending', error_message=NULL WHERE id IN ({$placeholders}) AND user_id=? AND status IN ('draft','pending','failed')",
+            array_merge($selectedIds, [$userId])
+        );
+
+        // 检查API Key
+        $config = null;
+        try {
+            $config = $db->fetchOne("SELECT * FROM article_templates WHERE user_id=? AND api_key IS NOT NULL AND api_key != '' ORDER BY is_default DESC LIMIT 1", [$userId]);
+        } catch (Exception $e) {}
+        if (!$config || empty($config['api_key'])) {
+            $config = $db->fetchOne("SELECT * FROM global_config WHERE user_id=?", [$userId]);
+        }
+        if (!$config || empty($config['api_key'])) {
+            jsonResponse(['success' => false, 'message' => '请先配置API Key']);
+        }
+
+        // 获取待生成文章
+        $pending = $db->fetchAll(
+            "SELECT * FROM articles WHERE user_id=? AND id IN ({$placeholders}) AND status='pending' ORDER BY id ASC LIMIT 50",
+            array_merge([$userId], $selectedIds)
+        );
+
+        if (empty($pending)) {
+            jsonResponse(['success' => false, 'message' => '没有待生成的文章']);
+        }
+
+        // 标记为生成中
+        foreach ($pending as $article) {
+            $db->update('articles', ['status' => 'generating'], 'id=?', [$article['id']]);
+        }
+
+        // 初始化进度文件
+        $progressFile = UPLOAD_PATH . "progress_{$userId}.json";
+        file_put_contents($progressFile, json_encode([
+            'total' => count($pending),
+            'done' => 0,
+            'current' => '开始一键生成发布...',
+            'current_error' => '',
+            'started_at' => date('Y-m-d H:i:s'),
+        ]));
+
+        session_write_close();
+
+        writeLog('article', '一键生成发布', "共" . count($pending) . "篇文章");
+
+        // 获取发布目标配置
+        $globalConfig = $db->fetchOne("SELECT * FROM global_config WHERE user_id=?", [$userId]);
+        $globalSiteId = intval($globalConfig['site_id'] ?? 0);
+        $globalCategoryId = $globalConfig['category_id'] ?? 0;
+
+        $doneCount = 0;
+        $failCount = 0;
+        $publishCount = 0;
+        $stopFile = UPLOAD_PATH . "stop_{$userId}.flag";
+        if (file_exists($stopFile)) @unlink($stopFile);
+
+        foreach ($pending as $article) {
+            // 检查停止标志
+            if (file_exists($stopFile)) {
+                @unlink($stopFile);
+                $db->update('articles', ['status' => 'pending', 'error_message' => null], 'user_id=? AND status="generating"', [$userId]);
+                break;
+            }
+
+            $current = $db->fetchOne("SELECT status FROM articles WHERE id=?", [$article['id']]);
+            if (!$current || $current['status'] !== 'generating') continue;
+
+            // 获取文章专属配置
+            $articleConfig = $config;
+            if (!empty($article['template_id'])) {
+                try {
+                    $tplConfig = $db->fetchOne("SELECT * FROM article_templates WHERE id=? AND user_id=?", [$article['template_id'], $userId]);
+                    if ($tplConfig) $articleConfig = $tplConfig;
+                } catch (Exception $e) {}
+            }
+
+            // 更新进度
+            file_put_contents($progressFile, json_encode([
+                'total' => count($pending),
+                'done' => $doneCount + $failCount,
+                'current' => $article['keyword'],
+                'current_error' => '',
+                'started_at' => date('Y-m-d H:i:s'),
+            ]));
+
+            // 生成文章
+            $generator = new AIGenerator();
+            $result = $generator->generateArticle($article['keyword'], $articleConfig);
+
+            if ($result['success']) {
+                $wordCount = mb_strlen(strip_tags($result['content']));
+                $db->update('articles', [
+                    'title' => $result['title'],
+                    'content' => $result['content'],
+                    'content_type' => ($articleConfig['export_content_type'] ?? 'html') === 'html' ? 'html' : 'text',
+                    'word_count' => $wordCount,
+                    'status' => 'generated',
+                ], 'id=?', [$article['id']]);
+                $doneCount++;
+
+                // 生成成功后自动加入发布队列
+                $articleSiteId = !empty($article['publish_site_id']) ? intval($article['publish_site_id']) : $globalSiteId;
+                $articleCategoryId = !empty($article['publish_category_id']) ? $article['publish_category_id'] : $globalCategoryId;
+
+                if ($articleSiteId) {
+                    $db->update('articles', [
+                        'status' => 'scheduled',
+                        'publish_at' => date('Y-m-d H:i:s', time() + $publishCount * 10),
+                    ], 'id=?', [$article['id']]);
+                    $publishCount++;
+                }
+            } else {
+                $db->update('articles', [
+                    'status' => 'failed',
+                    'error_message' => $result['message'] ?? '生成失败',
+                ], 'id=?', [$article['id']]);
+                $failCount++;
+            }
+
+            file_put_contents($progressFile, json_encode([
+                'total' => count($pending),
+                'done' => $doneCount + $failCount,
+                'current' => $article['keyword'],
+                'current_error' => $result['success'] ? '' : ($result['message'] ?? '生成失败'),
+                'started_at' => date('Y-m-d H:i:s'),
+            ]));
+
+            usleep(500000);
+        }
+
+        // 最终进度
+        if (!file_exists($stopFile)) {
+            file_put_contents($progressFile, json_encode([
+                'total' => count($pending),
+                'done' => $doneCount + $failCount,
+                'current' => '完成',
+                'current_error' => '',
+                'started_at' => date('Y-m-d H:i:s'),
+            ]));
+        }
+
+        // 立即处理发布队列
+        if ($publishCount > 0) {
+            for ($i = 0; $i < $publishCount; $i++) {
+                $article = $db->fetchOne(
+                    "SELECT * FROM articles WHERE user_id=? AND status='scheduled' AND publish_at <= NOW() ORDER BY publish_at ASC LIMIT 1",
+                    [$userId]
+                );
+                if (!$article) break;
+                try {
+                    publishOneArticle($db, $article, $userId);
+                } catch (Exception $e) {}
+                usleep(300000);
+            }
+        }
+
+        writeLog('article', '一键生成发布完成', "生成:成功{$doneCount}篇,失败{$failCount}篇,发布{$publishCount}篇");
+        jsonResponse([
+            'success' => true,
+            'message' => "生成完成！成功{$doneCount}篇,失败{$failCount}篇,自动发布{$publishCount}篇",
+            'generated' => $doneCount,
+            'failed' => $failCount,
+            'published' => $publishCount,
+        ]);
+        break;
+
     case 'retry_generate':
         // 重试失败的文章
         $input = json_decode(file_get_contents('php://input'), true);
