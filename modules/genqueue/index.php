@@ -613,17 +613,20 @@ function batchDelete() {
 }
 
 // 页面加载时检查是否有正在生成的任务
-<?php if ($stats['generating'] > 0): ?>
+</script>';
+
+if ($stats['generating'] > 0) {
+    $extraJs .= '<script>
 (function() {
     const progressDiv = document.getElementById("generateProgress");
     progressDiv.style.display = "block";
-    document.getElementById("progressStatus").textContent = "检测到 <?php echo $stats['generating']; ?> 篇正在生成的文章，自动恢复进度监控...";
+    document.getElementById("progressStatus").textContent = "检测到 ' . intval($stats['generating']) . ' 篇正在生成的文章，自动恢复进度监控...";
     document.getElementById("btnStartGenerate").disabled = true;
     document.getElementById("btnStartGenerate").innerHTML = \'<span class="spinner-border spinner-border-sm"></span> 生成中...\';
     pollProgress();
 })();
-<?php endif; ?>
 </script>';
+}
 
 require_once __DIR__ . '/../../includes/layout/footer.php';
 ?>
