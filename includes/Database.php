@@ -30,14 +30,17 @@ class Database {
         return $this->pdo;
     }
 
+    private $lastStmt = null;
+
     public function query($sql, $params = []) {
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($params);
+        $this->lastStmt = $stmt;
         return $stmt;
     }
 
     public function affected() {
-        return $this->pdo->rowCount();
+        return $this->lastStmt ? $this->lastStmt->rowCount() : 0;
     }
 
     public function fetchAll($sql, $params = []) {
