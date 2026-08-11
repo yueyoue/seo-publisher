@@ -433,9 +433,31 @@ function startGenerate() {
         }
     })
     .catch(err => {
-        alert("请求失败: " + err.message);
-        btn.disabled = false;
-        btn.innerHTML = \'<i class="bi bi-play-circle"></i> 开始生成\';
+        // fetch失败可能是服务端已在处理，稍后检查状态
+        setTimeout(() => {
+            fetch("/api/article.php?action=generate_status")
+                .then(r => r.json())
+                .then(data => {
+                    if (data.total > 0 && data.current !== "完成" && data.current !== "已停止") {
+                        // 服务端正在生成，恢复进度监控
+                        const progressDiv = document.getElementById("generateProgress");
+                        progressDiv.style.display = "block";
+                        document.getElementById("progressStatus").textContent = "恢复生成进度...";
+                        document.getElementById("btnStopGenerate").style.display = "inline-block";
+                        document.getElementById("btnStopGenerateHeader").style.display = "inline-block";
+                        pollProgress(data.total);
+                    } else {
+                        alert("请求失败: " + err.message);
+                        btn.disabled = false;
+                        btn.innerHTML = \'<i class="bi bi-play-circle"></i> 开始生成\';
+                    }
+                })
+                .catch(() => {
+                    alert("请求失败: " + err.message);
+                    btn.disabled = false;
+                    btn.innerHTML = \'<i class="bi bi-play-circle"></i> 开始生成\';
+                });
+        }, 2000);
     });
 }
 
@@ -644,41 +666,7 @@ if ($stats['generating'] > 0) {
 </script>';
 }
 
-// 自动生成：有待生成文章且无正在生成的文章时，自动启动生成
-if ($stats['pending'] > 0 && $stats['generating'] === 0) {
-    $extraJs .= '<script>
-(function() {
-    // 自动启动生成（后台持续运行，关闭浏览器也不中断）
-    const btn = document.getElementById("btnStartGenerate");
-    btn.disabled = true;
-    btn.innerHTML = \'<span class="spinner-border spinner-border-sm"></span> 自动生成中...\';
-    document.getElementById("btnStopGenerateHeader").style.display = "inline-block";
 
-    fetch("/api/article.php?action=batch_generate", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({ids: []})
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.success && data.total > 0) {
-            const progressDiv = document.getElementById("generateProgress");
-            progressDiv.style.display = "block";
-            document.getElementById("progressStatus").textContent = "自动生成中...";
-            document.getElementById("btnStopGenerate").style.display = "inline-block";
-            pollProgress(data.total);
-        } else {
-            btn.disabled = false;
-            btn.innerHTML = \'<i class="bi bi-play-circle"></i> 开始生成\';
-        }
-    })
-    .catch(() => {
-        btn.disabled = false;
-        btn.innerHTML = \'<i class="bi bi-play-circle"></i> 开始生成\';
-    });
-})();
-</script>';
-}
 
 require_once __DIR__ . '/../../includes/layout/footer.php';
 ?>
