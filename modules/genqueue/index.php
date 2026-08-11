@@ -55,6 +55,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (file_exists($progressFile)) @unlink($progressFile);
         $message = '已重置生成中的文章';
     }
+
+    // 重置发布中
+    if ($postAction === 'reset_publishing') {
+        $db->update('articles', ['status' => 'generated', 'error_message' => null], 'user_id=? AND status="publishing"', [$userId]);
+        $message = '已重置发布中的文章为已生成状态';
+    }
 }
 
 // 查询列表
@@ -123,6 +129,12 @@ if (!$hasApiKey) {
                 <input type="hidden" name="action" value="reset_generating">
                 <button type="submit" class="btn btn-outline-warning btn-sm" onclick="return confirm('确认重置？这会停止当前正在进行的生成任务')">
                     <i class="bi bi-arrow-counterclockwise"></i> 重置生成
+                </button>
+            </form>
+            <form method="POST" class="d-inline ms-1">
+                <input type="hidden" name="action" value="reset_publishing">
+                <button type="submit" class="btn btn-outline-warning btn-sm" onclick="return confirm('确认重置发布中的文章？')">
+                    <i class="bi bi-arrow-counterclockwise"></i> 重置发布中
                 </button>
             </form>
             <button class="btn btn-outline-secondary btn-sm ms-1" onclick="location.reload()">

@@ -185,6 +185,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $message = '已重置生成中的文章，可以重新发起生成';
     }
 
+    // 重置卡在发布中的文章
+    if ($postAction === 'reset_publishing') {
+        $db->update('articles', ['status' => 'generated', 'error_message' => null], 'user_id=? AND status="publishing"', [$userId]);
+        $message = '已重置发布中的文章为已生成状态';
+    }
+
     // 批量设置栏目
     if ($postAction === 'batch_set_category') {
         $articleIds = $_POST['article_ids'] ?? [];
@@ -332,6 +338,10 @@ $stats = [
                             <button type="submit" class="btn btn-outline-danger btn-sm" onclick="return confirm('确认重置？这会停止当前正在进行的生成任务')"><i class="bi bi-stop-circle"></i> 重置生成</button>
                         </form>
                         <form method="POST" class="d-inline ms-1">
+                            <input type="hidden" name="action" value="reset_publishing">
+                            <button type="submit" class="btn btn-outline-warning btn-sm" onclick="return confirm('确认重置？这会将卡在发布中的文章重置为已生成状态')"><i class="bi bi-arrow-counterclockwise"></i> 重置发布中</button>
+                        </form>
+                        <form method="POST" class="d-inline ms-1">
                             <input type="hidden" name="action" value="clear_articles">
                             <button type="submit" class="btn btn-outline-danger btn-sm" onclick="return confirm('确认清空？')"><i class="bi bi-trash"></i> 清空文章</button>
                         </form>
@@ -370,7 +380,7 @@ $stats = [
     <div class="mb-3">
         <div class="btn-group btn-group-sm">
             <a href="?status=" class="btn btn-outline-secondary <?php echo !$statusFilter ? 'active' : ''; ?>">全部</a>
-            <a href="?status=draft" class="btn btn-outline-light <?php echo $statusFilter === 'draft' ? 'active' : ''; ?>">草稿</a>
+            <a href="?status=draft" class="btn btn-outline-secondary <?php echo $statusFilter === 'draft' ? 'active' : ''; ?>">草稿</a>
             <a href="?status=pending" class="btn btn-outline-warning <?php echo $statusFilter === 'pending' ? 'active' : ''; ?>">待生成</a>
             <a href="?status=generated" class="btn btn-outline-primary <?php echo $statusFilter === 'generated' ? 'active' : ''; ?>">已生成</a>
             <a href="?status=scheduled" class="btn btn-outline-secondary <?php echo $statusFilter === 'scheduled' ? 'active' : ''; ?>">待发布</a>
